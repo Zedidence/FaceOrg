@@ -335,6 +335,10 @@ python -m faceorganizer serve "C:\Photos" --port 8080 --debug
 python -m faceorganizer serve "C:\Photos" --no-browser   # don't auto-open browser
 ```
 
+#### Security note
+
+The web UI is designed for **local, single-user use only**: it always binds to `127.0.0.1` (not configurable via a flag) and has no authentication. Its filesystem-browse feature (`/api/browse`, used by the Export dialog's Browse… button) can list any directory readable by your user account, and `--debug` enables Werkzeug's interactive debugger. None of this is a concern on localhost, but this app should never be exposed on a LAN or public network address without adding authentication and restricting the browse endpoint first.
+
 ## Verbosity
 
 Add `-v` for progress details or `-vv` for full debug output:

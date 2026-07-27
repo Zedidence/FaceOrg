@@ -457,7 +457,15 @@ def create_app(scan_root: Path) -> Flask:
 
     @app.route("/api/browse")
     def api_browse():
-        """Return directory listing for local filesystem navigation."""
+        """Return directory listing for local filesystem navigation.
+
+        Deliberately unrestricted: any directory readable by the OS user
+        running this process can be listed, with no allow-listed root and no
+        authentication. This is acceptable only because create_app's caller
+        (cmd_serve) always binds Flask to 127.0.0.1 — if this app is ever
+        exposed on a LAN/network-visible address, this endpoint must be
+        constrained (e.g. confined under scan_root) or removed first.
+        """
         raw = request.args.get("path", "").strip()
         target = Path(raw).expanduser() if raw else scan_root
         try:

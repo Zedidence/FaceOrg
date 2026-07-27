@@ -316,6 +316,13 @@ def cmd_serve(args: argparse.Namespace) -> None:
             webbrowser.open(url)
         threading.Thread(target=_open, daemon=True).start()
 
+    # host is deliberately hardcoded to 127.0.0.1, not configurable via a
+    # flag: the app has no authentication, and /api/browse exposes an
+    # unrestricted local filesystem listing (see its docstring in web/app.py).
+    # Both are fine for a single-user localhost tool but would become a real
+    # exposure if this were ever bound to a network-visible address. --debug
+    # additionally enables Werkzeug's interactive debugger/reloader, which is
+    # also localhost-only-safe but should not be combined with wider binding.
     app.run(host="127.0.0.1", port=args.port, debug=args.debug)
 
 

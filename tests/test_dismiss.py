@@ -5,19 +5,16 @@ from __future__ import annotations
 import sqlite3
 
 import numpy as np
-import pytest
 
-from faceorganizer.clustering.cluster import run_clustering, run_incremental_clustering
+from faceorganizer.clustering.cluster import run_clustering
 from faceorganizer.database.core import (
     dismiss_face,
     get_all_embeddings,
     get_scan_stats,
     get_unassigned_embeddings,
-    insert_cluster,
     insert_faces_batch,
     insert_photo,
     restore_face,
-    update_face_clusters_batch,
 )
 from faceorganizer.database.schema import init_db
 from faceorganizer.models import FaceInfo, PhotoInfo

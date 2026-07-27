@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, QTimer, Slot
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QLabel, QMainWindow,
-    QMessageBox, QSplitter, QStatusBar, QToolBar, QWidget,
+    QMessageBox, QSplitter, QToolBar,
 )
 
 from faceorganizer.app_settings import AppSettings

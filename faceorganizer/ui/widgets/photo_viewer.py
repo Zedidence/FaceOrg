@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 
 class PhotoViewer(QWidget):

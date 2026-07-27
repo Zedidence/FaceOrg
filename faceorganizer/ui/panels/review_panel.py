@@ -6,8 +6,7 @@ import sqlite3
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-    QSplitter, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
 from faceorganizer.database.core import get_clusters, merge_clusters

@@ -19,7 +19,6 @@ from faceorganizer.database.core import (
     get_unassigned_embeddings,
     insert_cluster,
     merge_clusters,
-    rename_cluster,
     update_face_clusters_batch,
 )
 from faceorganizer.logging_config import get_logger

@@ -6,7 +6,7 @@ Based on the classic Qt FlowLayout example, adapted for PySide6.
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtWidgets import QLayout, QLayoutItem, QSizePolicy, QWidget
+from PySide6.QtWidgets import QLayout, QLayoutItem, QWidget
 
 
 class FlowLayout(QLayout):
@@ -72,7 +72,6 @@ class FlowLayout(QLayout):
         row_height = 0
 
         for item in self._items:
-            widget = item.widget()
             hint = item.sizeHint()
             next_x = x + hint.width() + self._h_spacing
 

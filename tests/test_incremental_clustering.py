@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 
 import numpy as np
-import pytest
 
 from faceorganizer.clustering.cluster import (
     run_clustering,
@@ -14,7 +13,6 @@ from faceorganizer.clustering.cluster import (
 from faceorganizer.database.core import (
     get_cluster_centroids,
     get_clusters,
-    get_scan_stats,
     get_unassigned_embeddings,
     insert_cluster,
     insert_faces_batch,
@@ -193,8 +191,6 @@ class TestIncrementalClustering:
         if len(clusters) >= 2:
             rename_cluster(conn, clusters[0].id, "Merged")
             merge_clusters(conn, clusters[0].id, clusters[1].id)
-
-        stats_before = get_scan_stats(conn)
 
         # Add a new unrelated face (will be noise)
         pid2 = _add_photo(conn, "p2.jpg")

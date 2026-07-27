@@ -128,7 +128,7 @@ def cmd_show(args: argparse.Namespace) -> None:
         print("\nNo clusters yet. Run 'cluster' first.")
         return
 
-    print(f"\nTop people by face count:")
+    print("\nTop people by face count:")
     for c in clusters[:20]:
         print(f"  {c.name:<20s}  {c.face_count} face(s)")
 
@@ -247,13 +247,12 @@ def cmd_serve(args: argparse.Namespace) -> None:
     import threading
     import webbrowser
 
-    from faceorganizer.config import get_data_dir, get_db_path
+    from faceorganizer.config import get_data_dir
 
     folder = Path(args.folder).resolve()
     if not folder.is_dir():
         log.error("'%s' is not a directory", folder)
         sys.exit(1)
-    db_path = get_db_path(folder)
 
     setup_logging(args.verbose, log_dir=get_data_dir(folder))
 

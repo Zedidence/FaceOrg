@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import contextmanager
 from pathlib import Path
 
 import json
@@ -32,7 +31,7 @@ from faceorganizer.database.core import (
 )
 from faceorganizer.database.schema import configure_connection, init_db
 from faceorganizer.web.settings import Settings
-from faceorganizer.web.tasks import TaskStatus, create_task, get_task, run_in_background
+from faceorganizer.web.tasks import create_task, get_task, run_in_background
 from faceorganizer.web.thumbnails import get_or_create_thumbnail
 
 

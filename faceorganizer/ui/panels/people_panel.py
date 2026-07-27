@@ -14,9 +14,9 @@ from faceorganizer.database.core import (
     dismiss_cluster,
     get_clusters,
     get_representative_face,
-    rename_cluster,
 )
 from faceorganizer.models import PersonCluster
+from faceorganizer.organizer.naming import rename_person
 from faceorganizer.ui.dialogs.merge_dialog import MergeDialog
 from faceorganizer.ui.dialogs.rename_dialog import RenameDialog
 from faceorganizer.ui.widgets.flow_layout import FlowLayout
@@ -127,7 +127,7 @@ class PeoplePanel(QWidget):
             return
         dlg = RenameDialog(cluster.name, self)
         if dlg.exec() and dlg.new_name():
-            rename_cluster(self._conn, cluster_id, dlg.new_name())
+            rename_person(self._conn, cluster_id, dlg.new_name())
             self.clusters_changed.emit()
             self._refresh()
 

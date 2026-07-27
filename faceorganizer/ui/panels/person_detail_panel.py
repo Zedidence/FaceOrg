@@ -9,14 +9,15 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QMenu, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
+from faceorganizer.app_settings import AppSettings
 from faceorganizer.database.core import (
     dismiss_face,
     get_cluster_by_id,
     get_faces_for_cluster,
     merge_clusters,
     move_face_to_new_cluster,
-    rename_cluster,
 )
+from faceorganizer.organizer.naming import rename_person
 from faceorganizer.ui.dialogs.merge_dialog import MergeDialog
 from faceorganizer.ui.dialogs.rename_dialog import RenameDialog
 from faceorganizer.ui.widgets.face_grid import FaceGrid
@@ -30,9 +31,10 @@ class PersonDetailPanel(QWidget):
     back_requested = Signal()
     clusters_changed = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, settings: AppSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("PersonDetailPanel")
+        self._settings = settings
         self._conn: sqlite3.Connection | None = None
         self._cache: ThumbnailCache | None = None
         self._cluster_id: int | None = None
@@ -180,7 +182,7 @@ class PersonDetailPanel(QWidget):
             return
         dlg = RenameDialog(cluster.name, self)
         if dlg.exec() and dlg.new_name():
-            rename_cluster(self._conn, self._cluster_id, dlg.new_name())
+            rename_person(self._conn, self._cluster_id, dlg.new_name())
             self.clusters_changed.emit()
             self._refresh()
 
@@ -202,7 +204,6 @@ class PersonDetailPanel(QWidget):
         if self._conn is None or self._cluster_id is None:
             return
         from faceorganizer.clustering.cluster import run_recluster
-        from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD
-        run_recluster(self._conn, self._cluster_id, eps=DEFAULT_CLUSTER_THRESHOLD)
+        run_recluster(self._conn, self._cluster_id, eps=self._settings.cluster_threshold)
         self.clusters_changed.emit()
         self._refresh()

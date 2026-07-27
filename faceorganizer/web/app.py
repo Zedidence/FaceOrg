@@ -10,7 +10,7 @@ import time
 
 from flask import Flask, Response, abort, g, jsonify, render_template, request, send_file
 
-from faceorganizer.config import get_data_dir, get_db_path
+from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD, get_data_dir, get_db_path
 from faceorganizer.database.core import (
     dismiss_cluster,
     dismiss_face,
@@ -21,15 +21,14 @@ from faceorganizer.database.core import (
     get_faces_for_cluster,
     get_photos_for_cluster,
     get_scan_stats,
-    is_user_defined_name,
     merge_clusters,
     move_face_to_new_cluster,
-    rename_cluster,
     restore_face,
     update_face_cluster,
     update_face_clusters_batch,
 )
 from faceorganizer.database.schema import configure_connection, init_db
+from faceorganizer.organizer.naming import rename_person_full
 from faceorganizer.web.settings import Settings
 from faceorganizer.web.tasks import create_task, get_task, run_in_background
 from faceorganizer.web.thumbnails import get_or_create_thumbnail
@@ -274,14 +273,10 @@ def create_app(scan_root: Path) -> Flask:
         if not new_name:
             return jsonify({"error": "name required"}), 400
         conn = get_conn()
-        ok = rename_cluster(conn, cid, new_name)
-        if not ok:
+        result = rename_person_full(conn, cid, new_name)
+        if result is None:
             return jsonify({"error": "cluster not found"}), 404
-        absorbed: dict = {}
-        if is_user_defined_name(new_name):
-            from faceorganizer.clustering.cluster import absorb_after_rename
-            absorbed = absorb_after_rename(conn, cid, new_name)
-        return jsonify({"ok": True, "cluster_id": cid, "name": new_name, **absorbed})
+        return jsonify({"ok": True, "cluster_id": cid, **result})
 
     @app.route("/api/merge", methods=["POST"])
     def api_merge():
@@ -391,7 +386,7 @@ def create_app(scan_root: Path) -> Flask:
             cid = _require_int(data.get("cluster_id"), "cluster_id")
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-        threshold = float(data.get("threshold", 0.55))
+        threshold = float(data.get("threshold", DEFAULT_CLUSTER_THRESHOLD))
 
         task = create_task("recluster")
 
@@ -525,7 +520,7 @@ def create_app(scan_root: Path) -> Flask:
         preserving existing cluster names and merges.
         """
         data = request.get_json(force=True) if request.is_json else {}
-        threshold = float(data.get("threshold", 0.55))
+        threshold = float(data.get("threshold", DEFAULT_CLUSTER_THRESHOLD))
         maybe_threshold = data.get("maybe_threshold")
         if maybe_threshold is not None:
             maybe_threshold = float(maybe_threshold)

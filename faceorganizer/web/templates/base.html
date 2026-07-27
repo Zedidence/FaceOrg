@@ -418,8 +418,11 @@ function makeInlineEditable(el, clusterId, onSave) {
       }
       const res = await api('/api/rename', {cluster_id: clusterId, name: newName});
       if (res.ok) {
-        el.textContent = newName;
-        let msg = 'Renamed to "' + newName + '"';
+        // The server may sanitize the name (e.g. strip filesystem-unsafe
+        // characters), so reflect res.name rather than the raw input.
+        const savedName = res.name || newName;
+        el.textContent = savedName;
+        let msg = 'Renamed to "' + savedName + '"';
         if (res.absorbed_faces > 0 || res.merged_clusters > 0) {
           const parts = [];
           if (res.absorbed_faces > 0) parts.push(res.absorbed_faces + ' new face(s) absorbed');
@@ -427,7 +430,7 @@ function makeInlineEditable(el, clusterId, onSave) {
           msg += ' — ' + parts.join(', ');
         }
         toast(msg);
-        if (onSave) onSave(newName);
+        if (onSave) onSave(savedName);
       } else {
         el.textContent = currentName;
         toast('Error: ' + (res.error || 'failed'));

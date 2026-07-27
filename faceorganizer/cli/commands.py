@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from faceorganizer import __version__
+from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD
 from faceorganizer.logging_config import get_logger, setup_logging
 
 log = get_logger("cli")
@@ -328,8 +329,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_cluster = sub.add_parser("cluster", help="Cluster faces into people")
     p_cluster.add_argument("folder", help="Path to the scanned folder")
     p_cluster.add_argument(
-        "--threshold", type=float, default=0.55,
-        help="DBSCAN cosine distance eps (default: 0.55, lower = stricter)",
+        "--threshold", type=float, default=DEFAULT_CLUSTER_THRESHOLD,
+        help=f"DBSCAN cosine distance eps (default: {DEFAULT_CLUSTER_THRESHOLD}, lower = stricter)",
     )
     p_cluster.add_argument(
         "--incremental", action="store_true",
@@ -342,8 +343,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_recluster.add_argument("folder", help="Path to the scanned folder")
     p_recluster.add_argument("cluster_id", type=int, help="Cluster ID to recluster")
     p_recluster.add_argument(
-        "--threshold", type=float, default=0.55,
-        help="DBSCAN cosine distance eps (default: 0.55, lower = stricter)",
+        "--threshold", type=float, default=DEFAULT_CLUSTER_THRESHOLD,
+        help=f"DBSCAN cosine distance eps (default: {DEFAULT_CLUSTER_THRESHOLD}, lower = stricter)",
     )
     p_recluster.set_defaults(func=cmd_recluster)
 

@@ -8,7 +8,7 @@ IMAGE_EXTENSIONS = frozenset({
 })
 
 # Clustering defaults (tuned for ArcFace 512-dim embeddings)
-DEFAULT_CLUSTER_THRESHOLD = 0.30  # cosine distance eps for DBSCAN on ArcFace embeddings
+DEFAULT_CLUSTER_THRESHOLD = 0.55  # cosine distance eps for DBSCAN on ArcFace embeddings
 MIN_CLUSTER_SIZE = 3  # minimum faces to form a cluster (DBSCAN min_samples)
 DEFAULT_MAYBE_THRESHOLD = 0.45  # cosine distance for "maybe X" suggestions (looser than eps)
 

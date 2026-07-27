@@ -6,6 +6,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD
+
 _SETTINGS_DIR = Path.home() / ".faceorganizer"
 _SETTINGS_FILE = _SETTINGS_DIR / "app_settings.json"
 
@@ -18,7 +20,7 @@ class AppSettings:
     # Performance (None = use RuntimeProfile.recommended)
     worker_count: int | None = None
     # Clustering
-    cluster_threshold: float = 0.30
+    cluster_threshold: float = DEFAULT_CLUSTER_THRESHOLD
     incremental_clustering: bool = True
     # UI
     theme: str = "dark"

@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
         self._people.clusters_changed.connect(self._on_clusters_changed)
         self._stack.add_panel(PANEL_PEOPLE, self._people)
 
-        self._detail = PersonDetailPanel()
+        self._detail = PersonDetailPanel(self._settings)
         self._detail.back_requested.connect(lambda: self._show_panel(PANEL_PEOPLE))
         self._detail.clusters_changed.connect(self._on_clusters_changed)
         self._stack.add_panel(PANEL_PERSON_DETAIL, self._detail)
@@ -264,7 +264,12 @@ class MainWindow(QMainWindow):
             return
         workers = self._settings.effective_workers(self._profile.recommended_workers)
         self._launch_worker(
-            ScanWorker(self._scan_root, workers),
+            ScanWorker(
+                self._scan_root,
+                workers,
+                self._settings.detection_confidence,
+                self._settings.min_face_size,
+            ),
             "Scanning…",
         )
 

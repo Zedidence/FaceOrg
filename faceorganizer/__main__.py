@@ -1,4 +1,4 @@
-"""Entry point — launch the FaceOrganizer Qt desktop application."""
+"""Entry point — launch the FaceOrganizer Qt desktop app, or dispatch to the CLI."""
 
 from __future__ import annotations
 
@@ -6,6 +6,15 @@ import sys
 
 
 def main() -> None:
+    # With no arguments, launch the desktop GUI. With arguments (e.g. `scan`,
+    # `cluster`, `serve`, `--version`), dispatch to the CLI, as documented in
+    # the README's "Full CLI Reference".
+    if len(sys.argv) > 1:
+        from faceorganizer.cli.commands import main as cli_main
+
+        cli_main(sys.argv[1:])
+        return
+
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import Qt
 

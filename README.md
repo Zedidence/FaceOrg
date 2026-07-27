@@ -205,6 +205,20 @@ python -m faceorganizer recluster "C:\Users\you\Pictures\Vacation" 3
 python -m faceorganizer recluster "C:\Users\you\Pictures\Vacation" 3 --threshold 0.4
 ```
 
+### 6b. Merge and split clusters
+
+Merge one cluster into another (the merged cluster is deleted):
+
+```bash
+python -m faceorganizer merge "C:\Users\you\Pictures\Vacation" 1 5
+```
+
+Split a single face out of its cluster into a brand-new one:
+
+```bash
+python -m faceorganizer split "C:\Users\you\Pictures\Vacation" 42 "New Person"
+```
+
 ### 7. View cluster summary
 
 ```bash
@@ -236,6 +250,12 @@ Changed your mind? Restore it:
 
 ```bash
 python -m faceorganizer dismiss "C:\Users\you\Pictures\Vacation" 42 --restore
+```
+
+To dismiss an entire cluster (every face in it, e.g. a cluster of pet photos), which also deletes the cluster:
+
+```bash
+python -m faceorganizer dismiss-cluster "C:\Users\you\Pictures\Vacation" 7
 ```
 
 In the web UI, use the **Dismiss** button on any face thumbnail (`POST /api/dismiss`) and **Restore** (`POST /api/restore`).

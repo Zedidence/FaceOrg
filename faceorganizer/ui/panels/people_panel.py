@@ -7,16 +7,12 @@ import sqlite3
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from faceorganizer.database.core import (
-    dismiss_cluster,
-    get_clusters,
-    get_representative_face,
-)
+from faceorganizer import actions
+from faceorganizer.database.core import get_clusters, get_representative_face
 from faceorganizer.models import PersonCluster
-from faceorganizer.organizer.naming import rename_person
 from faceorganizer.ui.dialogs.merge_dialog import MergeDialog
 from faceorganizer.ui.dialogs.rename_dialog import RenameDialog
 from faceorganizer.ui.widgets.flow_layout import FlowLayout
@@ -127,7 +123,9 @@ class PeoplePanel(QWidget):
             return
         dlg = RenameDialog(cluster.name, self)
         if dlg.exec() and dlg.new_name():
-            rename_person(self._conn, cluster_id, dlg.new_name())
+            if not actions.rename_person(self._conn, cluster_id, dlg.new_name()):
+                QMessageBox.warning(self, "Rename Failed", "Cluster not found.")
+                return
             self.clusters_changed.emit()
             self._refresh()
 
@@ -141,13 +139,20 @@ class PeoplePanel(QWidget):
         if dlg.exec():
             target = dlg.target_cluster_id()
             if target is not None:
-                from faceorganizer.database.core import merge_clusters
-                merge_clusters(self._conn, target, cluster_id)
+                try:
+                    actions.merge_people(self._conn, target, cluster_id)
+                except actions.ActionError as e:
+                    QMessageBox.warning(self, "Merge Failed", str(e))
+                    return
                 self.clusters_changed.emit()
                 self._refresh()
 
     def _dismiss_cluster(self, cluster_id: int) -> None:
-        dismiss_cluster(self._conn, cluster_id)
+        try:
+            actions.dismiss_cluster(self._conn, cluster_id)
+        except actions.ActionError as e:
+            QMessageBox.warning(self, "Dismiss Failed", str(e))
+            return
         self.clusters_changed.emit()
         self._refresh()
 

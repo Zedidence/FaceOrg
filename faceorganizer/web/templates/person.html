@@ -33,7 +33,7 @@
   <p class="hint">Run DBSCAN on just this cluster's faces to split it into tighter sub-groups. Lower threshold = stricter (more splits).</p>
   <div class="actions">
     <label class="small">Threshold:</label>
-    <input type="number" id="recluster-threshold" value="0.40" min="0.05" max="1.0" step="0.05" style="width:80px;">
+    <input type="number" id="recluster-threshold" value="{{ default_threshold }}" min="0.05" max="1.0" step="0.05" style="width:80px;">
     <button class="btn btn-secondary" id="recluster-btn" onclick="doRecluster()">Recluster</button>
     <div class="spinner" id="recluster-spinner" style="display:none;"></div>
   </div>
@@ -65,6 +65,8 @@
   <div class="actions mt-1" id="split-controls" style="display:none;">
     <span class="small"><strong id="split-count">0</strong> selected</span>
     <input type="text" id="split-name" placeholder="New person name (optional)" style="width:220px;">
+    <label class="small">Threshold:</label>
+    <input type="number" id="split-threshold" value="{{ default_threshold }}" min="0.05" max="1.0" step="0.05" style="width:80px;">
     <button class="btn btn-secondary" onclick="doSplit()">Split selected into new person</button>
   </div>
 </div>
@@ -131,7 +133,7 @@ async function doSplit() {
   const sel = getSelected();
   if (sel.length === 0) { toast('Select faces to split out'); return; }
   const name = document.getElementById('split-name').value.trim();
-  const threshold = parseFloat(document.getElementById('recluster-threshold')?.value);
+  const threshold = parseFloat(document.getElementById('split-threshold')?.value);
   const body = {face_ids: sel.map(fid => parseInt(fid)), name: name || undefined};
   if (!isNaN(threshold) && threshold > 0) body.threshold = threshold;
   const res = await api('/api/split-batch', body);

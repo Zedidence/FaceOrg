@@ -6,18 +6,12 @@ import sqlite3
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QMenu, QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
+from faceorganizer import actions
 from faceorganizer.app_settings import AppSettings
-from faceorganizer.database.core import (
-    dismiss_face,
-    get_cluster_by_id,
-    get_faces_for_cluster,
-    merge_clusters,
-    move_face_to_new_cluster,
-)
-from faceorganizer.organizer.naming import rename_person
+from faceorganizer.database.core import get_cluster_by_id, get_faces_for_cluster
 from faceorganizer.ui.dialogs.merge_dialog import MergeDialog
 from faceorganizer.ui.dialogs.rename_dialog import RenameDialog
 from faceorganizer.ui.widgets.face_grid import FaceGrid
@@ -160,7 +154,11 @@ class PersonDetailPanel(QWidget):
     def _dismiss_face(self, face_id: int) -> None:
         if self._conn is None:
             return
-        dismiss_face(self._conn, face_id)
+        try:
+            actions.dismiss_face(self._conn, face_id)
+        except actions.ActionError as e:
+            QMessageBox.warning(self, "Dismiss Failed", str(e))
+            return
         self.clusters_changed.emit()
         self._refresh()
 
@@ -169,8 +167,12 @@ class PersonDetailPanel(QWidget):
             return
         dlg = RenameDialog("New Person", self)
         dlg.setWindowTitle("New Person Name")
-        if dlg.exec() and dlg.new_name():
-            move_face_to_new_cluster(self._conn, face_id, dlg.new_name())
+        if dlg.exec():
+            try:
+                actions.split_face(self._conn, face_id, dlg.new_name())
+            except actions.ActionError as e:
+                QMessageBox.warning(self, "Split Failed", str(e))
+                return
             self.clusters_changed.emit()
             self._refresh()
 
@@ -182,7 +184,9 @@ class PersonDetailPanel(QWidget):
             return
         dlg = RenameDialog(cluster.name, self)
         if dlg.exec() and dlg.new_name():
-            rename_person(self._conn, self._cluster_id, dlg.new_name())
+            if not actions.rename_person(self._conn, self._cluster_id, dlg.new_name()):
+                QMessageBox.warning(self, "Rename Failed", "Cluster not found.")
+                return
             self.clusters_changed.emit()
             self._refresh()
 
@@ -196,14 +200,31 @@ class PersonDetailPanel(QWidget):
         if dlg.exec():
             target = dlg.target_cluster_id()
             if target is not None:
-                merge_clusters(self._conn, target, self._cluster_id)
+                try:
+                    actions.merge_people(self._conn, target, self._cluster_id)
+                except actions.ActionError as e:
+                    QMessageBox.warning(self, "Merge Failed", str(e))
+                    return
                 self.clusters_changed.emit()
                 self.back_requested.emit()
 
     def _recluster(self) -> None:
         if self._conn is None or self._cluster_id is None:
             return
-        from faceorganizer.clustering.cluster import run_recluster
-        run_recluster(self._conn, self._cluster_id, eps=self._settings.cluster_threshold)
+        try:
+            result = actions.recluster_person(
+                self._conn, self._cluster_id, eps=self._settings.cluster_threshold
+            )
+        except actions.ActionError as e:
+            QMessageBox.warning(self, "Recluster Failed", str(e))
+            return
         self.clusters_changed.emit()
         self._refresh()
+        if result["new_clusters"] == 0 and result["noise"] == 0:
+            QMessageBox.information(self, "Recluster", "Cluster is already cohesive — no changes made.")
+        else:
+            QMessageBox.information(
+                self, "Recluster",
+                f"Split into {result['new_clusters']} new sub-cluster(s), "
+                f"{result['noise']} face(s) became unassigned.",
+            )

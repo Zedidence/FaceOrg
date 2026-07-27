@@ -162,20 +162,25 @@ def cmd_export(args: argparse.Namespace) -> None:
     print(f"Exported {total} photos into {len(summary)} person folders at {output}")
 
 
-def cmd_rename(args: argparse.Namespace) -> None:
-    """Rename a cluster."""
+def _open_db_or_exit(folder: Path):
+    """Resolve the folder's database, exiting with an error if it hasn't been scanned yet."""
     from faceorganizer.config import get_db_path
     from faceorganizer.database.schema import init_db
-    from faceorganizer.organizer.naming import rename_person
 
-    folder = Path(args.folder).resolve()
     db_path = get_db_path(folder)
     if not db_path.exists():
         log.error("No database found at %s. Run 'scan' first.", db_path)
         sys.exit(1)
+    return init_db(db_path)
 
-    conn = init_db(db_path)
-    ok = rename_person(conn, args.cluster_id, args.name)
+
+def cmd_rename(args: argparse.Namespace) -> None:
+    """Rename a cluster."""
+    from faceorganizer import actions
+
+    folder = Path(args.folder).resolve()
+    conn = _open_db_or_exit(folder)
+    ok = actions.rename_person(conn, args.cluster_id, args.name)
     conn.close()
 
     if ok:
@@ -187,48 +192,89 @@ def cmd_rename(args: argparse.Namespace) -> None:
 
 def cmd_dismiss(args: argparse.Namespace) -> None:
     """Dismiss a face as not-a-face (false positive detection)."""
-    from faceorganizer.config import get_db_path
-    from faceorganizer.database.core import dismiss_face, restore_face
-    from faceorganizer.database.schema import init_db
+    from faceorganizer import actions
 
     folder = Path(args.folder).resolve()
-    db_path = get_db_path(folder)
-    if not db_path.exists():
-        log.error("No database found at %s. Run 'scan' first.", db_path)
+    conn = _open_db_or_exit(folder)
+    try:
+        if args.restore:
+            actions.restore_face(conn, args.face_id)
+            action = "restored"
+        else:
+            actions.dismiss_face(conn, args.face_id)
+            action = "dismissed"
+    except actions.ActionError as e:
+        print(str(e))
         sys.exit(1)
+    finally:
+        conn.close()
 
-    conn = init_db(db_path)
-    if args.restore:
-        ok = restore_face(conn, args.face_id)
-        action = "restored"
-    else:
-        ok = dismiss_face(conn, args.face_id)
-        action = "dismissed"
-    conn.close()
+    print(f"Face {args.face_id} {action}")
 
-    if ok:
-        print(f"Face {args.face_id} {action}")
-    else:
-        print(f"Face {args.face_id} not found")
+
+def cmd_dismiss_cluster(args: argparse.Namespace) -> None:
+    """Dismiss every face in a cluster and delete it."""
+    from faceorganizer import actions
+
+    folder = Path(args.folder).resolve()
+    conn = _open_db_or_exit(folder)
+    try:
+        count = actions.dismiss_cluster(conn, args.cluster_id)
+    except actions.ActionError as e:
+        print(str(e))
         sys.exit(1)
+    finally:
+        conn.close()
+
+    print(f"Cluster {args.cluster_id} dismissed: {count} face(s) marked as not-a-face")
+
+
+def cmd_merge(args: argparse.Namespace) -> None:
+    """Merge one cluster into another."""
+    from faceorganizer import actions
+
+    folder = Path(args.folder).resolve()
+    conn = _open_db_or_exit(folder)
+    try:
+        actions.merge_people(conn, args.keep_id, args.merge_id)
+    except actions.ActionError as e:
+        print(str(e))
+        sys.exit(1)
+    finally:
+        conn.close()
+
+    print(f"Cluster {args.merge_id} merged into cluster {args.keep_id}")
+
+
+def cmd_split(args: argparse.Namespace) -> None:
+    """Split a single face out of its cluster into a new one."""
+    from faceorganizer import actions
+
+    folder = Path(args.folder).resolve()
+    conn = _open_db_or_exit(folder)
+    try:
+        result = actions.split_face(conn, args.face_id, args.name or "")
+    except actions.ActionError as e:
+        print(str(e))
+        sys.exit(1)
+    finally:
+        conn.close()
+
+    print(
+        f"Face {args.face_id} split into new cluster {result['cluster_id']} "
+        f"('{result['name']}')"
+    )
 
 
 def cmd_recluster(args: argparse.Namespace) -> None:
     """Re-cluster a single cluster into sub-clusters."""
-    from faceorganizer.clustering.cluster import run_recluster
-    from faceorganizer.config import get_db_path
-    from faceorganizer.database.schema import init_db
+    from faceorganizer import actions
 
     folder = Path(args.folder).resolve()
-    db_path = get_db_path(folder)
-    if not db_path.exists():
-        log.error("No database found at %s. Run 'scan' first.", db_path)
-        sys.exit(1)
-
-    conn = init_db(db_path)
+    conn = _open_db_or_exit(folder)
     try:
-        result = run_recluster(conn, args.cluster_id, eps=args.threshold)
-    except ValueError as e:
+        result = actions.recluster_person(conn, args.cluster_id, eps=args.threshold)
+    except actions.ActionError as e:
         log.error(str(e))
         sys.exit(1)
     finally:
@@ -348,6 +394,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_recluster.set_defaults(func=cmd_recluster)
 
+    # merge
+    p_merge = sub.add_parser("merge", help="Merge one cluster into another")
+    p_merge.add_argument("folder", help="Path to the scanned folder")
+    p_merge.add_argument("keep_id", type=int, help="Cluster ID to keep")
+    p_merge.add_argument("merge_id", type=int, help="Cluster ID to merge into keep_id (deleted)")
+    p_merge.set_defaults(func=cmd_merge)
+
+    # split
+    p_split = sub.add_parser("split", help="Split a single face into a new cluster")
+    p_split.add_argument("folder", help="Path to the scanned folder")
+    p_split.add_argument("face_id", type=int, help="Face ID to split out")
+    p_split.add_argument(
+        "name", nargs="?", default="",
+        help="Name for the new cluster (default: Split_<face_id>)",
+    )
+    p_split.set_defaults(func=cmd_split)
+
     # show
     p_show = sub.add_parser("show", help="Show cluster summary")
     p_show.add_argument("folder", help="Path to the scanned folder")
@@ -378,6 +441,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Undo a dismiss — mark the face as active again",
     )
     p_dismiss.set_defaults(func=cmd_dismiss)
+
+    # dismiss-cluster
+    p_dismiss_cluster = sub.add_parser(
+        "dismiss-cluster", help="Dismiss every face in a cluster and delete it"
+    )
+    p_dismiss_cluster.add_argument("folder", help="Path to the scanned folder")
+    p_dismiss_cluster.add_argument("cluster_id", type=int, help="Cluster ID to dismiss")
+    p_dismiss_cluster.set_defaults(func=cmd_dismiss_cluster)
 
     # serve
     p_serve = sub.add_parser("serve", help="Launch the web review UI")

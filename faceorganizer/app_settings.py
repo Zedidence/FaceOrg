@@ -1,4 +1,15 @@
-"""Persistent application settings stored in ~/.faceorganizer/app_settings.json."""
+"""Persistent application settings stored in ~/.faceorganizer/app_settings.json.
+
+This is the desktop app's per-*machine* settings store, deliberately separate
+from faceorganizer.web.settings.Settings (the web app's per-*folder*
+settings). The desktop app is a single long-lived install with a "recent
+folders" list, window geometry, and a theme choice — all machine-level
+concerns — whereas the web app is launched fresh against one folder at a time
+(`faceorganizer serve <folder>`) and keeps its detection/clustering tuning
+next to that folder's database instead. They are not synchronized with each
+other; if both UIs are used against the same folder, detection/clustering
+settings must be configured separately in each.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +17,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD
+from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD, MIN_DETECTION_CONFIDENCE, MIN_FACE_SIZE
 
 _SETTINGS_DIR = Path.home() / ".faceorganizer"
 _SETTINGS_FILE = _SETTINGS_DIR / "app_settings.json"
@@ -15,8 +26,8 @@ _SETTINGS_FILE = _SETTINGS_DIR / "app_settings.json"
 @dataclass
 class AppSettings:
     # Detection
-    detection_confidence: float = 0.9
-    min_face_size: int = 40
+    detection_confidence: float = MIN_DETECTION_CONFIDENCE
+    min_face_size: int = MIN_FACE_SIZE
     # Performance (None = use RuntimeProfile.recommended)
     worker_count: int | None = None
     # Clustering

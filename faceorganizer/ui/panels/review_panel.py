@@ -6,10 +6,11 @@ import sqlite3
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
-from faceorganizer.database.core import get_clusters, merge_clusters
+from faceorganizer import actions
+from faceorganizer.database.core import get_clusters
 from faceorganizer.models import PersonCluster
 from faceorganizer.ui.widgets.face_grid import FaceGrid
 from faceorganizer.ui.widgets.thumbnail_cache import ThumbnailCache
@@ -95,7 +96,11 @@ class ReviewPanel(QWidget):
         i = self._pair_index
         c1 = self._clusters[i % len(self._clusters)]
         c2 = self._clusters[(i + 1) % len(self._clusters)]
-        merge_clusters(self._conn, c2.id, c1.id)
+        try:
+            actions.merge_people(self._conn, c2.id, c1.id)
+        except actions.ActionError as e:
+            QMessageBox.warning(self, "Merge Failed", str(e))
+            return
         self.clusters_changed.emit()
         self._clusters = get_clusters(self._conn)
         self._pair_index = min(self._pair_index, max(0, len(self._clusters) - 2))

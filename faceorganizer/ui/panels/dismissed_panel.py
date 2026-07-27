@@ -6,10 +6,11 @@ import sqlite3
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from faceorganizer.database.core import get_dismissed_faces, restore_face
+from faceorganizer import actions
+from faceorganizer.database.core import get_dismissed_faces
 from faceorganizer.ui.widgets.face_grid import FaceGrid
 from faceorganizer.ui.widgets.thumbnail_cache import ThumbnailCache
 
@@ -62,7 +63,11 @@ class DismissedPanel(QWidget):
     def _restore_selected(self) -> None:
         if self._conn is None or self._selected_face_id is None:
             return
-        restore_face(self._conn, self._selected_face_id)
+        try:
+            actions.restore_face(self._conn, self._selected_face_id)
+        except actions.ActionError as e:
+            QMessageBox.warning(self, "Restore Failed", str(e))
+            return
         self._selected_face_id = None
         self.faces_changed.emit()
         self._refresh()

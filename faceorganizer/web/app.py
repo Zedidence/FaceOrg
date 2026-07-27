@@ -10,10 +10,9 @@ import time
 
 from flask import Flask, Response, abort, g, jsonify, render_template, request, send_file
 
+from faceorganizer import actions
 from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD, get_data_dir, get_db_path
 from faceorganizer.database.core import (
-    dismiss_cluster,
-    dismiss_face,
     get_cluster_by_id,
     get_clusters,
     get_dismissed_faces,
@@ -21,14 +20,10 @@ from faceorganizer.database.core import (
     get_faces_for_cluster,
     get_photos_for_cluster,
     get_scan_stats,
-    merge_clusters,
-    move_face_to_new_cluster,
-    restore_face,
     update_face_cluster,
     update_face_clusters_batch,
 )
 from faceorganizer.database.schema import configure_connection, init_db
-from faceorganizer.organizer.naming import rename_person_full
 from faceorganizer.web.settings import Settings
 from faceorganizer.web.tasks import create_task, get_task, run_in_background
 from faceorganizer.web.thumbnails import get_or_create_thumbnail
@@ -152,7 +147,7 @@ def create_app(scan_root: Path) -> Flask:
         return render_template(
             "person.html", cluster=cluster, faces=faces,
             photos_count=len(photos), all_clusters=all_clusters,
-            active_page="person",
+            active_page="person", default_threshold=DEFAULT_CLUSTER_THRESHOLD,
         )
 
     @app.route("/review")
@@ -273,7 +268,10 @@ def create_app(scan_root: Path) -> Flask:
         if not new_name:
             return jsonify({"error": "name required"}), 400
         conn = get_conn()
-        result = rename_person_full(conn, cid, new_name)
+        try:
+            result = actions.rename_person_full(conn, cid, new_name)
+        except actions.ActionError as e:
+            return jsonify({"error": str(e)}), e.status
         if result is None:
             return jsonify({"error": "cluster not found"}), 404
         return jsonify({"ok": True, "cluster_id": cid, **result})
@@ -286,12 +284,11 @@ def create_app(scan_root: Path) -> Flask:
             merge = _require_int(data.get("merge_id"), "merge_id")
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-        if keep == merge:
-            return jsonify({"error": "cannot merge a cluster with itself"}), 400
         conn = get_conn()
-        ok = merge_clusters(conn, keep, merge)
-        if not ok:
-            return jsonify({"error": "one or both clusters not found"}), 404
+        try:
+            actions.merge_people(conn, keep, merge)
+        except actions.ActionError as e:
+            return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "kept": keep, "merged": merge})
 
     @app.route("/api/split", methods=["POST"])
@@ -303,13 +300,11 @@ def create_app(scan_root: Path) -> Flask:
             return jsonify({"error": str(e)}), 400
         new_name = data.get("name", "").strip()
         conn = get_conn()
-        face = get_face_by_id(conn, fid)
-        if face is None:
-            return jsonify({"error": "face not found"}), 404
-        if not new_name:
-            new_name = f"Split_{fid}"
-        new_cluster_id = move_face_to_new_cluster(conn, fid, new_name)
-        return jsonify({"ok": True, "face_id": fid, "new_cluster_id": new_cluster_id})
+        try:
+            result = actions.split_face(conn, fid, new_name)
+        except actions.ActionError as e:
+            return jsonify({"error": str(e)}), e.status
+        return jsonify({"ok": True, "face_id": fid, "new_cluster_id": result["cluster_id"]})
 
     @app.route("/api/split-batch", methods=["POST"])
     def api_split_batch():
@@ -322,17 +317,18 @@ def create_app(scan_root: Path) -> Flask:
             face_ids = [_require_int(fid, "face_id") for fid in face_ids]
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-        base_name = (data.get("name") or "").strip() or "Split"
+        base_name = data.get("name") or ""
         threshold = data.get("threshold")
         try:
-            eps = float(threshold) if threshold is not None else None
+            eps = float(threshold) if threshold is not None else DEFAULT_CLUSTER_THRESHOLD
         except (TypeError, ValueError):
             return jsonify({"error": "threshold must be a number"}), 400
         conn = get_conn()
-        from faceorganizer.clustering.cluster import split_faces_by_similarity
-        kwargs = {"eps": eps} if eps is not None else {}
-        new_cluster_ids = split_faces_by_similarity(conn, face_ids, base_name, **kwargs)
-        return jsonify({"ok": True, "new_cluster_ids": new_cluster_ids})
+        try:
+            result = actions.split_faces_batch(conn, face_ids, base_name, eps=eps)
+        except actions.ActionError as e:
+            return jsonify({"error": str(e)}), e.status
+        return jsonify({"ok": True, "new_cluster_ids": result["cluster_ids"]})
 
     @app.route("/api/move-face", methods=["POST"])
     def api_move_face():
@@ -391,12 +387,10 @@ def create_app(scan_root: Path) -> Flask:
         task = create_task("recluster")
 
         def do_recluster():
-            from faceorganizer.clustering.cluster import run_recluster
-
             conn = sqlite3.connect(str(db_path))
             configure_connection(conn)
             try:
-                result = run_recluster(conn, cid, eps=threshold)
+                result = actions.recluster_person(conn, cid, eps=threshold)
                 task.result = result
             finally:
                 conn.close()
@@ -413,7 +407,10 @@ def create_app(scan_root: Path) -> Flask:
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         conn = get_conn()
-        count = dismiss_cluster(conn, cid)
+        try:
+            count = actions.dismiss_cluster(conn, cid)
+        except actions.ActionError as e:
+            return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "cluster_id": cid, "faces_dismissed": count})
 
     @app.route("/api/dismiss", methods=["POST"])
@@ -425,9 +422,10 @@ def create_app(scan_root: Path) -> Flask:
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         conn = get_conn()
-        ok = dismiss_face(conn, fid)
-        if not ok:
-            return jsonify({"error": "face not found"}), 404
+        try:
+            actions.dismiss_face(conn, fid)
+        except actions.ActionError as e:
+            return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "face_id": fid})
 
     @app.route("/api/restore", methods=["POST"])
@@ -439,9 +437,10 @@ def create_app(scan_root: Path) -> Flask:
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         conn = get_conn()
-        ok = restore_face(conn, fid)
-        if not ok:
-            return jsonify({"error": "face not found"}), 404
+        try:
+            actions.restore_face(conn, fid)
+        except actions.ActionError as e:
+            return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "face_id": fid})
 
     # ── Filesystem browser ─────────────────────────────────────────────
@@ -553,8 +552,6 @@ def create_app(scan_root: Path) -> Flask:
     @app.route("/api/export", methods=["POST"])
     def api_export():
         """Start background export."""
-        from faceorganizer.organizer.export import export_by_person
-
         data = request.get_json(force=True)
         output_dir = data.get("output_dir", "").strip()
         if not output_dir:
@@ -567,8 +564,9 @@ def create_app(scan_root: Path) -> Flask:
             conn = sqlite3.connect(str(db_path))
             configure_connection(conn)
             try:
-                summary = export_by_person(
-                    conn, Path(output_dir), symlink=use_symlink
+                summary = actions.export_people(
+                    conn, Path(output_dir), symlink=use_symlink,
+                    stop_event=task.stop_event,
                 )
                 task.result = {
                     "total": sum(summary.values()),

@@ -23,7 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 gpu = ["onnxruntime-directml>=1.16.0"]
 cuda = ["onnxruntime-gpu>=1.16.0"]
-dev = ["pytest>=7.0.0", "ruff>=0.3.0", "pyinstaller>=6.0.0"]
+dev = ["pytest>=7.0.0", "pytest-cov>=5.0.0", "ruff>=0.3.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
 faceorganizer = "faceorganizer.__main__:main"
@@ -36,3 +36,17 @@ select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# Excluded from the coverage gate: Qt UI (needs pytest-qt/a display), QThread
+# workers (need a Qt event loop), the face detector/scanner (need real ONNX
+# models + images), hardware probing, and the GUI entry point. None of these
+# are tested today; the gate below covers the rest of the codebase, which is
+# plain, testable business logic (database, clustering, actions, CLI, web).
+omit = [
+    "*/faceorganizer/__main__.py",
+    "*/faceorganizer/hardware.py",
+    "*/faceorganizer/ui/*",
+    "*/faceorganizer/workers/*",
+    "*/faceorganizer/scanner/*",
+]

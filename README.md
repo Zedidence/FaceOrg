@@ -378,6 +378,12 @@ pytest
 ruff check .
 ```
 
+To run the linter automatically before each commit:
+
+```bash
+pre-commit install
+```
+
 ## Project structure
 
 ```

@@ -24,9 +24,12 @@ from faceorganizer.database.core import (
     update_face_clusters_batch,
 )
 from faceorganizer.database.schema import configure_connection, init_db
+from faceorganizer.logging_config import get_logger
 from faceorganizer.web.settings import Settings
 from faceorganizer.web.tasks import create_task, get_task, run_in_background
 from faceorganizer.web.thumbnails import get_or_create_thumbnail
+
+log = get_logger("web.app")
 
 
 def _require_int(value, name: str) -> int:
@@ -41,6 +44,7 @@ def _require_int(value, name: str) -> int:
 
 def create_app(scan_root: Path) -> Flask:
     """Create and configure the Flask app for a given scan root."""
+    log.info("Starting web app for scan root: %s", scan_root)
     app = Flask(__name__, template_folder=str(Path(__file__).parent / "templates"))
     app.config["SCAN_ROOT"] = scan_root
     db_path = get_db_path(scan_root)
@@ -271,6 +275,7 @@ def create_app(scan_root: Path) -> Flask:
         try:
             result = actions.rename_person_full(conn, cid, new_name)
         except actions.ActionError as e:
+            log.warning("api_rename failed for cluster %d: %s", cid, e)
             return jsonify({"error": str(e)}), e.status
         if result is None:
             return jsonify({"error": "cluster not found"}), 404
@@ -288,6 +293,7 @@ def create_app(scan_root: Path) -> Flask:
         try:
             actions.merge_people(conn, keep, merge)
         except actions.ActionError as e:
+            log.warning("api_merge failed (keep=%d, merge=%d): %s", keep, merge, e)
             return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "kept": keep, "merged": merge})
 
@@ -303,6 +309,7 @@ def create_app(scan_root: Path) -> Flask:
         try:
             result = actions.split_face(conn, fid, new_name)
         except actions.ActionError as e:
+            log.warning("api_split failed for face %d: %s", fid, e)
             return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "face_id": fid, "new_cluster_id": result["cluster_id"]})
 
@@ -327,6 +334,7 @@ def create_app(scan_root: Path) -> Flask:
         try:
             result = actions.split_faces_batch(conn, face_ids, base_name, eps=eps)
         except actions.ActionError as e:
+            log.warning("api_split_batch failed for faces %s: %s", face_ids, e)
             return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "new_cluster_ids": result["cluster_ids"]})
 
@@ -410,6 +418,7 @@ def create_app(scan_root: Path) -> Flask:
         try:
             count = actions.dismiss_cluster(conn, cid)
         except actions.ActionError as e:
+            log.warning("api_dismiss_cluster failed for cluster %d: %s", cid, e)
             return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "cluster_id": cid, "faces_dismissed": count})
 
@@ -425,6 +434,7 @@ def create_app(scan_root: Path) -> Flask:
         try:
             actions.dismiss_face(conn, fid)
         except actions.ActionError as e:
+            log.warning("api_dismiss failed for face %d: %s", fid, e)
             return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "face_id": fid})
 
@@ -440,6 +450,7 @@ def create_app(scan_root: Path) -> Flask:
         try:
             actions.restore_face(conn, fid)
         except actions.ActionError as e:
+            log.warning("api_restore failed for face %d: %s", fid, e)
             return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "face_id": fid})
 

@@ -9,7 +9,10 @@ from pathlib import Path
 
 import numpy as np
 
+from faceorganizer.logging_config import get_logger
 from faceorganizer.models import FaceInfo, PersonCluster, PhotoInfo
+
+log = get_logger("database.core")
 
 _AUTO_OR_MAYBE_RE = re.compile(r"^(Person_\d{3,}|maybe .*)$")
 
@@ -30,6 +33,7 @@ def insert_photo(conn: sqlite3.Connection, photo: PhotoInfo) -> int:
         ),
     )
     conn.commit()
+    log.debug("Inserted photo %s (id=%d)", photo.path, cur.lastrowid)
     return cur.lastrowid
 
 
@@ -57,6 +61,7 @@ def insert_face(conn: sqlite3.Connection, face: FaceInfo, photo_id: int) -> int:
         ),
     )
     conn.commit()
+    log.debug("Inserted face id=%d for photo_id=%d", cur.lastrowid, photo_id)
     return cur.lastrowid
 
 
@@ -81,6 +86,7 @@ def insert_faces_batch(conn: sqlite3.Connection, faces: list[FaceInfo], photo_id
         ],
     )
     conn.commit()
+    log.debug("Inserted %d face(s) for photo_id=%d", len(faces), photo_id)
 
 
 def get_all_embeddings(conn: sqlite3.Connection) -> tuple[list[int], np.ndarray]:
@@ -197,6 +203,7 @@ def update_face_cluster(conn: sqlite3.Connection, face_id: int, cluster_id: int 
     """Update the cluster assignment for a face."""
     conn.execute("UPDATE faces SET cluster_id = ? WHERE id = ?", (cluster_id, face_id))
     conn.commit()
+    log.debug("Assigned face %d to cluster %s", face_id, cluster_id)
 
 
 def update_face_clusters_batch(
@@ -205,12 +212,14 @@ def update_face_clusters_batch(
     """Batch update cluster assignments. Each tuple is (cluster_id, face_id)."""
     conn.executemany("UPDATE faces SET cluster_id = ? WHERE id = ?", assignments)
     conn.commit()
+    log.debug("Batch-assigned %d face(s) to clusters", len(assignments))
 
 
 def insert_cluster(conn: sqlite3.Connection, name: str) -> int:
     """Insert a new cluster. Returns the row id."""
     cur = conn.execute("INSERT INTO clusters (name) VALUES (?)", (name,))
     conn.commit()
+    log.debug("Inserted cluster %d ('%s')", cur.lastrowid, name)
     return cur.lastrowid
 
 
@@ -243,6 +252,7 @@ def clear_clusters(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE faces SET cluster_id = NULL")
     conn.execute("DELETE FROM clusters")
     conn.commit()
+    log.info("Cleared all cluster assignments")
 
 
 def get_cluster_by_id(conn: sqlite3.Connection, cluster_id: int) -> PersonCluster | None:
@@ -275,7 +285,11 @@ def rename_cluster(conn: sqlite3.Connection, cluster_id: int, new_name: str) -> 
         (new_name, cluster_id),
     )
     conn.commit()
-    return cur.rowcount > 0
+    if cur.rowcount == 0:
+        log.warning("rename_cluster: cluster %d not found", cluster_id)
+        return False
+    log.debug("Renamed cluster %d to '%s'", cluster_id, new_name)
+    return True
 
 
 def get_representative_face(
@@ -394,6 +408,9 @@ def merge_clusters(conn: sqlite3.Connection, keep_id: int, merge_id: int) -> boo
     keep_exists = conn.execute("SELECT 1 FROM clusters WHERE id = ?", (keep_id,)).fetchone()
     merge_exists = conn.execute("SELECT 1 FROM clusters WHERE id = ?", (merge_id,)).fetchone()
     if not keep_exists or not merge_exists:
+        log.warning(
+            "merge_clusters: keep_id=%d or merge_id=%d not found", keep_id, merge_id
+        )
         return False
     conn.execute(
         "UPDATE faces SET cluster_id = ? WHERE cluster_id = ?", (keep_id, merge_id)
@@ -403,6 +420,7 @@ def merge_clusters(conn: sqlite3.Connection, keep_id: int, merge_id: int) -> boo
         "UPDATE clusters SET updated_at = datetime('now') WHERE id = ?", (keep_id,)
     )
     conn.commit()
+    log.info("Merged cluster %d into %d", merge_id, keep_id)
     return True
 
 
@@ -411,6 +429,7 @@ def move_face_to_new_cluster(conn: sqlite3.Connection, face_id: int, new_name: s
     new_id = insert_cluster(conn, new_name)
     conn.execute("UPDATE faces SET cluster_id = ? WHERE id = ?", (new_id, face_id))
     conn.commit()
+    log.debug("Split face %d into new cluster %d ('%s')", face_id, new_id, new_name)
     return new_id
 
 
@@ -424,7 +443,11 @@ def dismiss_face(conn: sqlite3.Connection, face_id: int) -> bool:
         "UPDATE faces SET dismissed = 1, cluster_id = NULL WHERE id = ?", (face_id,)
     )
     conn.commit()
-    return cur.rowcount > 0
+    if cur.rowcount == 0:
+        log.warning("dismiss_face: face %d not found", face_id)
+        return False
+    log.debug("Dismissed face %d", face_id)
+    return True
 
 
 def restore_face(conn: sqlite3.Connection, face_id: int) -> bool:
@@ -434,7 +457,11 @@ def restore_face(conn: sqlite3.Connection, face_id: int) -> bool:
     """
     cur = conn.execute("UPDATE faces SET dismissed = 0 WHERE id = ?", (face_id,))
     conn.commit()
-    return cur.rowcount > 0
+    if cur.rowcount == 0:
+        log.warning("restore_face: face %d not found", face_id)
+        return False
+    log.debug("Restored face %d", face_id)
+    return True
 
 
 def dismiss_cluster(conn: sqlite3.Connection, cluster_id: int) -> int:
@@ -449,6 +476,7 @@ def dismiss_cluster(conn: sqlite3.Connection, cluster_id: int) -> int:
     count = cur.rowcount
     conn.execute("DELETE FROM clusters WHERE id = ?", (cluster_id,))
     conn.commit()
+    log.info("Dismissed cluster %d: %d face(s) marked as not-a-face", cluster_id, count)
     return count
 
 

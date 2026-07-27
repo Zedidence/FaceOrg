@@ -8,6 +8,10 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from faceorganizer.logging_config import get_logger
+
+log = get_logger("web.tasks")
+
 # Completed/errored tasks are evicted after this many seconds.
 _TASK_TTL_SECONDS = 3600  # 1 hour
 
@@ -79,14 +83,17 @@ def run_in_background(task: TaskStatus, fn, *args, **kwargs) -> None:
 
     def _wrapper():
         task.status = "running"
+        log.info("Task %s (%s) started", task.id, task.type)
         try:
             result = fn(*args, **kwargs)
             if result is not None:
                 task.result = result
             task.status = "cancelled" if task.stop_event.is_set() else "done"
+            log.info("Task %s (%s) finished: %s", task.id, task.type, task.status)
         except Exception as e:
             task.message = str(e)
             task.status = "error"
+            log.exception("Task %s (%s) failed", task.id, task.type)
         finally:
             task.finished_at = time.monotonic()
 

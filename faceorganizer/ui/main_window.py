@@ -7,8 +7,13 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Slot
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QLabel, QMainWindow,
-    QMessageBox, QSplitter, QToolBar,
+    QApplication,
+    QFileDialog,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QSplitter,
+    QToolBar,
 )
 
 from faceorganizer.app_settings import AppSettings
@@ -17,8 +22,13 @@ from faceorganizer.database.core import get_clusters, get_scan_stats
 from faceorganizer.database.schema import init_db
 from faceorganizer.hardware import RuntimeProfile
 from faceorganizer.ui.content_stack import (
-    PANEL_DISMISSED, PANEL_PEOPLE, PANEL_PERSON_DETAIL,
-    PANEL_REVIEW, PANEL_SETTINGS, PANEL_TIMELINE, PANEL_WELCOME,
+    PANEL_DISMISSED,
+    PANEL_PEOPLE,
+    PANEL_PERSON_DETAIL,
+    PANEL_REVIEW,
+    PANEL_SETTINGS,
+    PANEL_TIMELINE,
+    PANEL_WELCOME,
     ContentStack,
 )
 from faceorganizer.ui.panels.dismissed_panel import DismissedPanel

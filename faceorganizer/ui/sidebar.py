@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QLabel,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from faceorganizer.models import PersonCluster

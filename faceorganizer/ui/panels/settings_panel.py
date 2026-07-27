@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QFormLayout, QGroupBox,
-    QLabel, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
 
 from faceorganizer.app_settings import AppSettings

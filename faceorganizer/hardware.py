@@ -36,8 +36,8 @@ class RuntimeProfile:
 
 def probe_hardware() -> RuntimeProfile:
     """Detect system hardware and return a RuntimeProfile with recommendations."""
-    import psutil
     import onnxruntime as ort
+    import psutil
 
     available = ort.get_available_providers()
     if "CUDAExecutionProvider" in available:

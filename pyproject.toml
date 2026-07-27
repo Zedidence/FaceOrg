@@ -32,7 +32,10 @@ faceorganizer = "faceorganizer.__main__:main"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+# E4/E7/E9/F: pyflakes + pycodestyle error subset (the previous baseline).
+# I: import sorting. UP: modernize syntax for the declared min Python (3.10).
+# B: flake8-bugbear, catches real bugs (mutable defaults, bare raises, etc.)
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

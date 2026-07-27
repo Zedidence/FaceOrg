@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
-
 import json
+import sqlite3
 import time
+from pathlib import Path
 
 from flask import Flask, Response, abort, g, jsonify, render_template, request, send_file
 
@@ -38,8 +37,8 @@ def _require_int(value, name: str) -> int:
         raise ValueError(f"{name} is required")
     try:
         return int(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} must be an integer")
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"{name} must be an integer") from e
 
 
 def create_app(scan_root: Path) -> Flask:

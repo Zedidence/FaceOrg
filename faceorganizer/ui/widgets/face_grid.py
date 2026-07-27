@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget, QScrollArea
+from PySide6.QtWidgets import QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from faceorganizer.ui.widgets.face_tile import FaceTile
 from faceorganizer.ui.widgets.flow_layout import FlowLayout

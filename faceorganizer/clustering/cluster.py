@@ -85,7 +85,7 @@ def run_clustering(
 
     # Build batch assignments: (cluster_id, face_id)
     assignments: list[tuple[int | None, int]] = []
-    for face_id, label in zip(face_ids, labels):
+    for face_id, label in zip(face_ids, labels, strict=True):
         cluster_id = label_to_cluster_id.get(int(label))  # None for noise
         assignments.append((cluster_id, face_id))
 
@@ -141,7 +141,7 @@ def run_incremental_clustering(
         best_idx = np.argmax(dots, axis=1)
         best_dist = 1.0 - dots[np.arange(len(dots)), best_idx]
 
-        for i, (fid, dist) in enumerate(zip(face_ids, best_dist)):
+        for i, (fid, dist) in enumerate(zip(face_ids, best_dist, strict=True)):
             if dist <= eps:
                 assignments.append((cids[best_idx[i]], fid))
                 assigned_count += 1
@@ -226,7 +226,7 @@ def run_incremental_clustering(
             cluster_id = insert_cluster(conn, name)
             label_to_cluster_id[label] = cluster_id
 
-        for fid, label in zip(rem_ids, labels):
+        for fid, label in zip(rem_ids, labels, strict=True):
             cluster_id = label_to_cluster_id.get(int(label))
             assignments.append((cluster_id, fid))
 
@@ -335,7 +335,7 @@ def run_recluster(
             new_id = insert_cluster(conn, name)
             new_cluster_labels[label] = new_id
 
-    for face_id, label in zip(face_ids, labels):
+    for face_id, label in zip(face_ids, labels, strict=True):
         cid = new_cluster_labels.get(int(label))  # None for noise
         assignments.append((cid, face_id))
 
@@ -422,12 +422,15 @@ def split_faces_by_similarity(
     return new_cluster_ids
 
 
-def _next_auto_name(conn: sqlite3.Connection, _cache: dict[str, int] = {}) -> str:
-    """Generate the next Person_NNN name that doesn't conflict with existing clusters.
+# Tracks the highest Person_NNN number handed out this process, so repeated
+# calls within one clustering pass (before earlier inserts are visible to a
+# fresh MAX() query) don't collide. Deliberately module-level rather than a
+# mutable default argument, to avoid the classic shared-default-value gotcha.
+_next_auto_name_cache: dict[str, int] = {}
 
-    Uses a simple cache to avoid re-querying when called in a loop (e.g. during
-    incremental clustering that creates multiple new clusters in one pass).
-    """
+
+def _next_auto_name(conn: sqlite3.Connection) -> str:
+    """Generate the next Person_NNN name that doesn't conflict with existing clusters."""
     # Find the current max N among Person_NNN names
     cur = conn.execute(
         """SELECT MAX(CAST(SUBSTR(name, 8) AS INTEGER))
@@ -437,11 +440,9 @@ def _next_auto_name(conn: sqlite3.Connection, _cache: dict[str, int] = {}) -> st
     row = cur.fetchone()
     max_n = row[0] if row and row[0] is not None else 0
 
-    # Also track what we've handed out this session to avoid collisions
-    # when called multiple times before the inserts are visible.
-    last_given = _cache.get("last", 0)
+    last_given = _next_auto_name_cache.get("last", 0)
     n = max(max_n, last_given) + 1
-    _cache["last"] = n
+    _next_auto_name_cache["last"] = n
     return f"Person_{n:03d}"
 
 
@@ -475,7 +476,7 @@ def absorb_after_rename(
 
             to_absorb = [
                 (cluster_id, fid)
-                for fid, dist in zip(face_ids, dists)
+                for fid, dist in zip(face_ids, dists, strict=True)
                 if dist <= eps
             ]
             if to_absorb:

@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QLabel, QVBoxLayout, QWidget,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
 )
 
 from faceorganizer.models import PersonCluster

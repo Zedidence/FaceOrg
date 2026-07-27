@@ -15,16 +15,16 @@ def main() -> None:
         cli_main(sys.argv[1:])
         return
 
-    from PySide6.QtWidgets import QApplication
+    # Set up file logging in ~/.faceorganizer/logs/
+    from pathlib import Path
+
     from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
 
     from faceorganizer.app_settings import AppSettings
     from faceorganizer.hardware import probe_hardware
     from faceorganizer.logging_config import setup_logging
     from faceorganizer.ui.main_window import MainWindow
-
-    # Set up file logging in ~/.faceorganizer/logs/
-    from pathlib import Path
     log_dir = Path.home() / ".faceorganizer" / "logs"
     setup_logging(verbosity=0, log_dir=log_dir)
 

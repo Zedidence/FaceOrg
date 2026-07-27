@@ -6,7 +6,14 @@ import sqlite3
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
 from faceorganizer import actions

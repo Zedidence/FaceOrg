@@ -24,7 +24,6 @@ from faceorganizer.database.core import (
 from faceorganizer.database.schema import init_db
 from faceorganizer.models import FaceInfo, PhotoInfo
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

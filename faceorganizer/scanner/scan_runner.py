@@ -11,11 +11,11 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from os import cpu_count
 from pathlib import Path
-from typing import Callable
 
 from faceorganizer.logging_config import get_logger
 from faceorganizer.models import FaceInfo, PhotoInfo

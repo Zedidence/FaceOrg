@@ -44,7 +44,7 @@ class AppSettings:
     sidebar_width: int = 220
 
     @classmethod
-    def load(cls) -> "AppSettings":
+    def load(cls) -> AppSettings:
         """Load settings from disk; return defaults on any error."""
         if not _SETTINGS_FILE.exists():
             return cls()

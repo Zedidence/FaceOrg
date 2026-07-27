@@ -30,7 +30,7 @@ class Settings:
     default_workers: int | None = None  # None = use scan_runner default
 
     @classmethod
-    def load(cls, data_dir: Path) -> "Settings":
+    def load(cls, data_dir: Path) -> Settings:
         path = data_dir / _FILENAME
         if not path.exists():
             return cls()

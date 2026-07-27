@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Settings - FaceOrganizer{% endblock %}
+{% block content %}
+
+<h1>Settings</h1>
+
+<div class="panel">
+  <h2>Face Detection</h2>
+  <p class="hint">Changes take effect on the next scan. Existing scan results are not affected.</p>
+
+  <div style="display:flex;flex-direction:column;gap:0.75rem;max-width:480px;">
+
+    <!-- Detection confidence -->
+    <div style="display:flex;align-items:center;gap:0.5rem;">
+      <span class="small tooltip-trigger" style="min-width:160px;"
+            data-tip="Minimum confidence score for a face detection to be kept. Higher = fewer false positives but may miss real faces.">
+        Detection confidence
+      </span>
+      <input type="range" id="conf-slider" min="10" max="100" value="{{ (settings.detection_confidence * 100) | int }}"
+             style="flex:1;max-width:200px;" oninput="document.getElementById('conf-value').textContent = this.value + '%'">
+      <span class="small" id="conf-value" style="min-width:40px;text-align:right;">{{ (settings.detection_confidence * 100) | int }}%</span>
+    </div>
+
+    <!-- Min face size -->
+    <div style="display:flex;align-items:center;gap:0.5rem;">
+      <span class="small tooltip-trigger" style="min-width:160px;"
+            data-tip="Faces smaller than this (in pixels, width or height) are ignored. Increase to filter out tiny/blurry faces.">
+        Min face size
+      </span>
+      <input type="number" id="min-face-size" min="5" max="500" value="{{ settings.min_face_size }}"
+             style="width:72px;padding:0.3rem 0.5rem;">
+      <span class="small muted">px</span>
+    </div>
+
+    <!-- Default workers -->
+    <div style="display:flex;align-items:center;gap:0.5rem;">
+      <span class="small tooltip-trigger" style="min-width:160px;"
+            data-tip="Default number of parallel threads for scanning. Leave blank to use automatic (min 4, or cpu count − 1). Override per-scan with the Workers field on the dashboard.">
+        Default workers
+      </span>
+      <input type="number" id="default-workers" min="1" max="16"
+             value="{{ settings.default_workers if settings.default_workers is not none else '' }}"
+             placeholder="auto" style="width:72px;padding:0.3rem 0.5rem;">
+      <span class="small muted">threads (blank = auto)</span>
+    </div>
+
+  </div>
+
+  <div class="actions" style="margin-top:1.25rem;">
+    <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
+    <button class="btn btn-secondary" onclick="resetSettings()">Reset to defaults</button>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+async function saveSettings() {
+  const conf = parseInt(document.getElementById('conf-slider').value) / 100;
+  const minFace = parseInt(document.getElementById('min-face-size').value);
+  const workersRaw = document.getElementById('default-workers').value.trim();
+  const workers = workersRaw ? parseInt(workersRaw) : null;
+
+  const r = await api('/api/settings', {
+    detection_confidence: conf,
+    min_face_size: minFace,
+    default_workers: workers,
+  });
+  if (r.ok) toast('Settings saved');
+  else toast('Error: ' + (r.error || 'failed'));
+}
+
+async function resetSettings() {
+  const r = await api('/api/settings', {
+    detection_confidence: 0.9,
+    min_face_size: 40,
+    default_workers: null,
+  });
+  if (r.ok) {
+    document.getElementById('conf-slider').value = 90;
+    document.getElementById('conf-value').textContent = '90%';
+    document.getElementById('min-face-size').value = 40;
+    document.getElementById('default-workers').value = '';
+    toast('Settings reset to defaults');
+  } else {
+    toast('Error: ' + (r.error || 'failed'));
+  }
+}
+
+KeyShortcuts.init();
+</script>
+{% endblock %}

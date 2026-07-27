@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Logs - FaceOrganizer{% endblock %}
+{% block content %}
+
+<h1>Application Log</h1>
+
+<div class="panel" style="margin-bottom:0.75rem;">
+  <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+    <label class="small" for="log-lines">Show last</label>
+    <select id="log-lines" onchange="loadLogs()">
+      <option value="50">50 lines</option>
+      <option value="200" selected>200 lines</option>
+      <option value="500">500 lines</option>
+      <option value="2000">2000 lines</option>
+    </select>
+    <label class="small" style="display:flex;align-items:center;gap:0.35rem;">
+      <input type="checkbox" id="log-autorefresh" checked onchange="toggleAutoRefresh()">
+      Auto-refresh (5s)
+    </label>
+    <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="loadLogs()">Refresh</button>
+    <button class="btn btn-primary btn-sm" onclick="clearLogs()">Clear log</button>
+  </div>
+  <div id="log-path" class="small muted" style="margin-top:0.5rem;"></div>
+</div>
+
+<div id="log-output"
+     style="background:var(--surface);border-radius:var(--radius);padding:1rem 1.25rem;
+            font-family:ui-monospace,Consolas,'Cascadia Code',monospace;font-size:0.78rem;
+            line-height:1.65;overflow-x:auto;white-space:pre-wrap;word-break:break-all;
+            max-height:70vh;overflow-y:auto;color:var(--text);border:1px solid var(--accent);">
+  Loading&hellip;
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let _refreshTimer = null;
+
+function _esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function loadLogs() {
+  const n = document.getElementById('log-lines').value;
+  const out = document.getElementById('log-output');
+  try {
+    const r = await fetch('/api/logs?lines=' + n);
+    if (!r.ok) { out.textContent = 'Error fetching logs'; return; }
+    const data = await r.json();
+    if (!data.exists) {
+      out.textContent = 'No log file yet. Run a scan to generate logs.';
+      document.getElementById('log-path').textContent = '';
+      return;
+    }
+    if (data.path) {
+      document.getElementById('log-path').textContent = data.path;
+    }
+    if (!data.lines.length) {
+      out.textContent = 'Log is empty.';
+      return;
+    }
+    out.innerHTML = data.lines.map(line => {
+      const s = _esc(line);
+      if (line.includes(' ERROR ') || line.includes(' CRITICAL '))
+        return `<span style="color:var(--primary)">${s}</span>`;
+      if (line.includes(' WARNING '))
+        return `<span style="color:var(--warning)">${s}</span>`;
+      if (line.includes(' DEBUG '))
+        return `<span style="color:var(--faint)">${s}</span>`;
+      return s;
+    }).join('\n');
+    out.scrollTop = out.scrollHeight;
+  } catch(e) {
+    out.textContent = 'Failed to load logs: ' + e;
+  }
+}
+
+function toggleAutoRefresh() {
+  if (document.getElementById('log-autorefresh').checked) {
+    _refreshTimer = setInterval(loadLogs, 5000);
+  } else {
+    clearInterval(_refreshTimer);
+    _refreshTimer = null;
+  }
+}
+
+async function clearLogs() {
+  const r = await fetch('/api/logs/clear', {method: 'POST'});
+  const data = await r.json();
+  if (data.ok) {
+    document.getElementById('log-output').textContent = 'Log cleared.';
+    toast('Log file cleared');
+  } else {
+    toast('Error: ' + (data.error || 'failed'));
+  }
+}
+
+loadLogs();
+_refreshTimer = setInterval(loadLogs, 5000);
+KeyShortcuts.init();
+</script>
+{% endblock %}

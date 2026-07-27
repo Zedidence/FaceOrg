@@ -1,0 +1,724 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - FaceOrganizer{% endblock %}
+{% block content %}
+
+{# Determine workflow state #}
+{% set has_photos = stats.photos > 0 %}
+{% set has_faces = stats.faces > 0 %}
+{% set has_clusters = stats.clusters > 0 %}
+
+<h1>Dashboard</h1>
+
+<!-- Workflow stepper -->
+<div class="stepper">
+  <div class="step {{ 'done' if has_faces else 'current' }}">
+    <span class="step-num">1</span>
+    <span class="step-label">Scan</span>
+  </div>
+  <div class="step {{ 'done' if has_clusters else ('current' if has_faces else '') }}">
+    <span class="step-num">2</span>
+    <span class="step-label">Cluster</span>
+  </div>
+  <div class="step {{ 'current' if has_clusters else '' }}">
+    <span class="step-num">3</span>
+    <span class="step-label">Review & Export</span>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-bar">
+  <div class="stat"><div class="num" id="stat-photos">{{ stats.photos }}</div><div class="label">Photos</div></div>
+  <div class="stat"><div class="num" id="stat-faces">{{ stats.faces }}</div><div class="label">Faces found</div></div>
+  <div class="stat"><div class="num" id="stat-clusters">{{ stats.clusters }}</div><div class="label">People</div></div>
+  <div class="stat"><div class="num" id="stat-unclustered">{{ stats.unclustered_faces }}</div><div class="label">Unclustered</div></div>
+  {% if stats.dismissed_faces %}
+  <div class="stat"><div class="num" id="stat-dismissed">{{ stats.dismissed_faces }}</div><div class="label"><a href="/dismissed" style="color:var(--muted);">Dismissed</a></div></div>
+  {% endif %}
+</div>
+
+<!-- Step 1: Scan -->
+<div class="panel" id="panel-scan">
+  <h2>Step 1: Scan for faces</h2>
+  <p class="hint">
+    Scans <code>{{ scan_root }}</code> for photos, detects faces, and stores embeddings.
+    {% if has_photos %}Already scanned — re-running will only process new or modified photos.{% endif %}
+  </p>
+  <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
+    <label class="small" for="scan-workers" style="color:var(--muted);min-width:90px;">Workers</label>
+    <input type="number" id="scan-workers" min="1" max="16" value="4" style="width:64px;padding:0.3rem 0.5rem;">
+    <span class="small muted tooltip-trigger" data-tip="Parallel threads for face detection. More = faster scan but higher CPU &amp; RAM usage.">threads</span>
+  </div>
+  <div class="actions">
+    <button class="btn btn-primary btn-lg" id="btn-scan" onclick="startScan()">
+      {{ 'Re-scan folder' if has_photos else 'Scan folder' }}
+    </button>
+  </div>
+  <div id="progress-area" style="display:none;margin-top:0.75rem;">
+    <div style="display:flex;align-items:center;gap:0.75rem;">
+      <div class="spinner" id="progress-spinner"></div>
+      <span id="progress-text" class="small"></span>
+      <button class="btn btn-secondary btn-sm" id="btn-cancel" onclick="cancelScan()"
+              style="margin-left:auto;display:none;">Cancel</button>
+    </div>
+    <div class="progress-track mt-1"><div class="progress-fill" id="progress-bar"></div></div>
+  </div>
+</div>
+
+<!-- Step 2: Cluster -->
+<div class="panel" id="panel-cluster" {% if not has_faces %}style="opacity:0.45;pointer-events:none;"{% endif %}>
+  <h2>Step 2: Group faces into people</h2>
+  <p class="hint">
+    Uses DBSCAN clustering to match faces.
+    {% if not has_faces %}Scan first to detect faces.{% endif %}
+  </p>
+  <div class="actions">
+    {% if has_clusters %}
+    <button class="btn btn-primary btn-lg" id="btn-cluster" onclick="startCluster(true)">
+      Cluster new faces
+    </button>
+    <button class="btn btn-secondary" id="btn-cluster-full" onclick="startCluster(false)">
+      Full re-cluster
+    </button>
+    {% else %}
+    <button class="btn btn-primary btn-lg" id="btn-cluster" onclick="startCluster(false)">
+      Run clustering
+    </button>
+    {% endif %}
+  </div>
+  <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.75rem;">
+    <div style="display:flex;align-items:center;gap:0.5rem;">
+      <span class="small tooltip-trigger" style="min-width:110px;"
+            data-tip="Faces at least this similar to an existing person are auto-assigned. Higher = stricter.">
+        Confident match
+      </span>
+      <input type="range" id="confident-slider" min="20" max="80" value="45" step="1"
+             style="flex:1;max-width:200px;" oninput="syncSliders('confident')">
+      <span class="small" id="confident-value" style="min-width:36px;text-align:right;">45%</span>
+    </div>
+    {% if has_clusters %}
+    <div style="display:flex;align-items:center;gap:0.5rem;">
+      <span class="small tooltip-trigger" style="min-width:110px;"
+            data-tip="New groups this similar to a named person get labeled 'maybe [name]' for your review.">
+        Maybe match
+      </span>
+      <input type="range" id="maybe-slider" min="10" max="70" value="25" step="1"
+             style="flex:1;max-width:200px;" oninput="syncSliders('maybe')">
+      <span class="small" id="maybe-value" style="min-width:36px;text-align:right;">25%</span>
+    </div>
+    {% endif %}
+  </div>
+  {% if has_clusters %}
+  <p class="hint" style="margin-top:0.5rem;margin-bottom:0;">
+    <strong>Cluster new faces</strong> assigns only unassigned faces — your renamed and merged people are preserved.<br>
+    <strong>Full re-cluster</strong> starts from scratch (all names and merges are lost).
+  </p>
+  {% endif %}
+</div>
+
+<!-- Step 3: Review & Export -->
+<div class="panel" id="panel-export" {% if not has_clusters %}style="opacity:0.45;pointer-events:none;"{% endif %}>
+  <h2>Step 3: Review & export</h2>
+  <p class="hint">
+    Click any person below to rename, merge, or split.
+    Use the <a href="/review">Review page</a> to compare clusters side-by-side.
+    When you're happy, export organized folders.
+  </p>
+  <div class="actions">
+    <div style="display:flex;gap:0.4rem;align-items:center;">
+      <input type="text" id="export-dir" placeholder="Output folder path" style="width:240px;" readonly title="Click Browse to pick a folder">
+      <button class="btn btn-secondary btn-sm" type="button" onclick="openFolderPicker('export-dir')">Browse&hellip;</button>
+    </div>
+    <label class="small" style="display:flex;align-items:center;gap:0.3rem;">
+      <input type="checkbox" id="export-symlink">
+      <span class="tooltip-trigger" data-tip="Create shortcuts instead of copying files. Saves disk space but requires the originals to stay in place.">Symlink</span>
+    </label>
+    <button class="btn btn-success" id="btn-export" onclick="startExport()">Export</button>
+  </div>
+</div>
+
+<!-- Folder picker modal -->
+<div id="folder-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:300;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:var(--radius-lg);padding:1.25rem 1.5rem;width:500px;max-width:95vw;max-height:78vh;display:flex;flex-direction:column;gap:0.75rem;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <strong style="font-size:1rem;">Select Folder</strong>
+      <button onclick="closeFolderPicker()" style="background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <div id="browser-path" class="small" style="color:var(--muted);word-break:break-all;min-height:1.2em;"></div>
+    <div id="browser-list" style="overflow-y:auto;flex:1;min-height:200px;border:1px solid var(--accent);border-radius:var(--radius);padding:0.3rem;"></div>
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+      <button class="btn btn-secondary btn-sm" onclick="closeFolderPicker()">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="browser-select-btn" onclick="confirmFolderPick()">Select This Folder</button>
+    </div>
+  </div>
+</div>
+
+<!-- People grid -->
+{% if clusters %}
+<h2>People <span id="people-count">({{ clusters|length }})</span></h2>
+<div class="filter-bar">
+  <input type="text" class="search-input" id="people-search" placeholder="Search people..." oninput="filterPeople()">
+  <select id="people-sort" onchange="filterPeople()">
+    <option value="faces-desc">Most faces</option>
+    <option value="faces-asc">Fewest faces</option>
+    <option value="name-asc">Name A-Z</option>
+    <option value="name-desc">Name Z-A</option>
+  </select>
+  <select id="people-filter" onchange="filterPeople()">
+    <option value="all">All</option>
+    <option value="named">Named only</option>
+    <option value="auto">Auto-named only</option>
+    <option value="maybe">Maybe matches</option>
+  </select>
+  <span class="filter-count" id="filter-count"></span>
+</div>
+<div class="grid" id="people-grid">
+  {% for c in clusters %}
+  <div class="card-wrap" data-cluster-id="{{ c.id }}">
+    <a class="card" href="/person/{{ c.id }}"{% if c.name.startswith('maybe ') %} style="border:2px solid #e6a817;"{% endif %}>
+      {% if c._rep_face %}
+      <img src="/thumb/{{ c._rep_face.face_id }}" alt="{{ c.name }}" loading="lazy">
+      {% else %}
+      <div style="width:100%;aspect-ratio:1;background:var(--accent);display:flex;align-items:center;justify-content:center;color:var(--faint);">?</div>
+      {% endif %}
+      <div class="info">
+        <div class="name" data-cluster-id="{{ c.id }}"{% if c.name.startswith('maybe ') %} style="color:#e6a817;"{% endif %}>{{ c.name }}</div>
+        <div class="count">{{ c.face_count }} face{{ 's' if c.face_count != 1 }}</div>
+      </div>
+    </a>
+    <input type="checkbox" class="card-select" data-cluster-id="{{ c.id }}" onchange="updateBatchSelection()" title="Select for batch action">
+    <button class="card-dismiss" onclick="dismissCluster({{ c.id }}, this)" title="Dismiss all faces in this cluster">&times;</button>
+    <button class="card-merge" onclick="toggleMergeMenu({{ c.id }}, this)" title="Merge into another person">&#x2192;</button>
+    <div class="card-merge-menu" id="merge-menu-{{ c.id }}"></div>
+  </div>
+  {% endfor %}
+</div>
+{% elif has_faces %}
+<div class="empty-state">
+  <div class="icon">&#x1F465;</div>
+  <h3 style="margin-bottom:0.5rem;">{{ stats.faces }} faces detected</h3>
+  <p>Faces are ready to be grouped into people. Click <strong>Run clustering</strong> above to automatically identify who's who.</p>
+  <button class="btn btn-primary btn-lg" onclick="startCluster(false)" style="margin-top:0.75rem;">Run clustering now</button>
+</div>
+{% elif not has_photos %}
+<div class="empty-state">
+  <div class="icon">&#x1F4F7;</div>
+  <h3 style="margin-bottom:0.5rem;">Welcome to FaceOrganizer</h3>
+  <p>Automatically detect, group, and organize faces in your photo collection. Get started by scanning a folder for photos.</p>
+  <div style="margin-top:1rem;display:flex;flex-direction:column;gap:0.5rem;align-items:center;">
+    <button class="btn btn-primary btn-lg" onclick="startScan()">Scan folder for photos</button>
+    <span class="small muted">Scanning <code>{{ scan_root }}</code></span>
+  </div>
+  <div style="margin-top:2rem;display:flex;gap:2rem;justify-content:center;flex-wrap:wrap;">
+    <div style="text-align:center;max-width:160px;">
+      <div style="font-size:1.5rem;margin-bottom:0.3rem;">1.</div>
+      <div class="small"><strong>Scan</strong> your photo folder to detect faces</div>
+    </div>
+    <div style="text-align:center;max-width:160px;">
+      <div style="font-size:1.5rem;margin-bottom:0.3rem;">2.</div>
+      <div class="small"><strong>Cluster</strong> faces into people automatically</div>
+    </div>
+    <div style="text-align:center;max-width:160px;">
+      <div style="font-size:1.5rem;margin-bottom:0.3rem;">3.</div>
+      <div class="small"><strong>Review</strong> and export organized folders</div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Batch action bar -->
+<div class="batch-bar" id="batch-bar">
+  <span><span class="batch-count" id="batch-count">0</span> people selected</span>
+  <div class="batch-actions">
+    <select id="batch-merge-target" style="min-width:160px;">
+      <option value="">Merge into...</option>
+      {% for c in clusters %}
+      <option value="{{ c.id }}">{{ c.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-success btn-sm" onclick="batchMerge()">Merge selected</button>
+    <button class="btn btn-primary btn-sm" onclick="batchDismiss()">Dismiss selected</button>
+    <button class="btn btn-secondary btn-sm" onclick="clearBatchSelection()">Cancel</button>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let activeTaskId = null;
+let pollTimer = null;
+
+function setButtonsDisabled(d) {
+  ['btn-scan','btn-cluster','btn-cluster-full','btn-export'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = d;
+  });
+}
+
+function showProgress(text, pct, {cancellable = false} = {}) {
+  document.getElementById('progress-area').style.display = 'block';
+  document.getElementById('progress-text').textContent = text;
+  if (pct !== undefined) document.getElementById('progress-bar').style.width = pct + '%';
+  const cancelBtn = document.getElementById('btn-cancel');
+  if (cancelBtn) cancelBtn.style.display = cancellable ? '' : 'none';
+}
+function hideProgress() {
+  document.getElementById('progress-area').style.display = 'none';
+  document.getElementById('progress-bar').style.width = '0%';
+  const cancelBtn = document.getElementById('btn-cancel');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+}
+
+async function refreshStats() {
+  try {
+    const s = await (await fetch('/api/stats')).json();
+    document.getElementById('stat-photos').textContent = s.photos;
+    document.getElementById('stat-faces').textContent = s.faces;
+    document.getElementById('stat-clusters').textContent = s.clusters;
+    document.getElementById('stat-unclustered').textContent = s.unclustered_faces;
+  } catch(e) {}
+}
+
+function pollTask(taskId, onDone, {cancellable = false} = {}) {
+  // Use SSE for real-time progress, with polling fallback
+  activeTaskId = taskId;
+  setButtonsDisabled(true);
+
+  function _handleTerminal(t) {
+    activeTaskId = null;
+    setButtonsDisabled(false);
+    if (t.status === 'cancelled') {
+      const p = t.progress || {};
+      toast(`Scan cancelled — ${p.processed||0} photos processed, ${p.faces_found||0} faces saved`);
+    } else if (t.status === 'done') {
+      try { toast(onDone ? onDone(t) : 'Done!'); } catch(e) { toast('Done!'); }
+    } else {
+      toast('Error: ' + (t.message || 'unknown error'));
+    }
+  }
+
+  let eventSource;
+  try { eventSource = new EventSource('/api/task/' + taskId + '/stream'); } catch(e) { eventSource = null; }
+
+  if (eventSource) {
+    eventSource.onmessage = async (event) => {
+      try {
+        const t = JSON.parse(event.data);
+        if (t.error) { eventSource.close(); setButtonsDisabled(false); hideProgress(); return; }
+        if (t.progress) {
+          const p = t.progress;
+          const total = p.total || 1;
+          const done = p.processed + p.skipped;
+          const pct = Math.round((done / total) * 100);
+          let text = `${done} / ${total}`;
+          if (p.faces_found) text += ` \u2022 ${p.faces_found} faces`;
+          if (p.errors) text += ` \u2022 ${p.errors} errors`;
+          if (p.current_file) text += ` \u2014 ${p.current_file}`;
+          showProgress(text, pct, {cancellable});
+        } else {
+          showProgress(t.status === 'running' ? 'Working...' : t.status, undefined, {cancellable});
+        }
+        if (t.status === 'done' || t.status === 'error' || t.status === 'cancelled') {
+          eventSource.close();
+          _handleTerminal(t);
+          await refreshStats();
+          setTimeout(() => { hideProgress(); location.reload(); }, 1200);
+        }
+      } catch(e) { /* ignore parse errors */ }
+    };
+    eventSource.onerror = () => {
+      eventSource.close();
+      activeTaskId = null;
+      setButtonsDisabled(false);
+      hideProgress();
+    };
+  } else {
+    // Fallback polling for browsers without SSE
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/task/' + taskId);
+        if (!r.ok) return;
+        const t = await r.json();
+        if (t.progress) {
+          const p = t.progress;
+          const total = p.total || 1;
+          const done = p.processed + p.skipped;
+          const pct = Math.round((done / total) * 100);
+          let text = `${done} / ${total}`;
+          if (p.faces_found) text += ` \u2022 ${p.faces_found} faces`;
+          if (p.errors) text += ` \u2022 ${p.errors} errors`;
+          if (p.current_file) text += ` \u2014 ${p.current_file}`;
+          showProgress(text, pct, {cancellable});
+        } else {
+          showProgress(t.status === 'running' ? 'Working...' : t.status, undefined, {cancellable});
+        }
+        if (t.status === 'done' || t.status === 'error' || t.status === 'cancelled') {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          _handleTerminal(t);
+          await refreshStats();
+          setTimeout(() => { hideProgress(); location.reload(); }, 1200);
+        }
+      } catch(e) { clearInterval(pollTimer); pollTimer = null; setButtonsDisabled(false); hideProgress(); }
+    }, 600);
+  }
+}
+
+async function cancelScan() {
+  if (!activeTaskId) return;
+  const btn = document.getElementById('btn-cancel');
+  if (btn) { btn.disabled = true; btn.textContent = 'Cancelling\u2026'; }
+  await fetch('/api/task/' + activeTaskId + '/cancel', {method: 'POST'});
+}
+
+const clusterList = [
+  {% for c in clusters %}
+  {id: {{ c.id }}, name: {{ c.name | tojson }}},
+  {% endfor %}
+];
+
+let openMenu = null;
+
+function toggleMergeMenu(clusterId, btn) {
+  // Close any other open menu
+  if (openMenu && openMenu !== clusterId) {
+    const prev = document.getElementById('merge-menu-' + openMenu);
+    if (prev) prev.classList.remove('open');
+  }
+
+  const menu = document.getElementById('merge-menu-' + clusterId);
+  if (menu.classList.contains('open')) {
+    menu.classList.remove('open');
+    openMenu = null;
+    return;
+  }
+
+  // Build options — only show named clusters (not this one)
+  const targets = clusterList.filter(c => c.id !== clusterId);
+  menu.innerHTML = targets.map(c =>
+    `<button class="merge-option" onclick="mergeFromDashboard(${clusterId}, ${c.id}, this)">${c.name}</button>`
+  ).join('');
+
+  if (targets.length === 0) {
+    menu.innerHTML = '<div style="padding:0.5rem 0.75rem;color:var(--muted);font-size:0.82rem;">No other clusters</div>';
+  }
+
+  menu.classList.add('open');
+  openMenu = clusterId;
+}
+
+async function mergeFromDashboard(mergeId, keepId, btn) {
+  const res = await api('/api/merge', {keep_id: keepId, merge_id: mergeId});
+  if (res.ok) {
+    toast('Merged into ' + clusterList.find(c => c.id === keepId)?.name);
+    const wrap = document.querySelector(`.card-wrap[data-cluster-id="${mergeId}"]`);
+    if (wrap) wrap.remove();
+    // Close menu
+    openMenu = null;
+    refreshStats();
+  } else {
+    toast('Error: ' + (res.error || 'failed'));
+  }
+}
+
+// Close merge menu when clicking outside
+document.addEventListener('click', (e) => {
+  if (openMenu && !e.target.closest('.card-merge') && !e.target.closest('.card-merge-menu')) {
+    const menu = document.getElementById('merge-menu-' + openMenu);
+    if (menu) menu.classList.remove('open');
+    openMenu = null;
+  }
+});
+
+async function dismissCluster(clusterId, btn) {
+  const res = await api('/api/dismiss-cluster', {cluster_id: clusterId});
+  if (res.ok) {
+    toast('Dismissed ' + (res.faces_dismissed || 0) + ' face(s)');
+    const wrap = btn.closest('.card-wrap');
+    if (wrap) wrap.remove();
+    refreshStats();
+  } else {
+    toast('Error: ' + (res.error || 'failed'));
+  }
+}
+
+async function startScan() {
+  if (activeTaskId) return;
+  setButtonsDisabled(true);
+  showProgress('Starting scan...', 0);
+  const workersEl = document.getElementById('scan-workers');
+  const workers = workersEl ? parseInt(workersEl.value) || null : null;
+  const r = await api('/api/scan', workers ? {workers} : {});
+  if (r.ok) pollTask(r.task_id, t => {
+    const p = t.progress || {};
+    return `Scan complete \u2013 ${p.processed||0} photos, ${p.faces_found||0} faces`;
+  }, {cancellable: true});
+  else { toast('Error: ' + (r.error||'failed')); setButtonsDisabled(false); hideProgress(); }
+}
+
+function similarityToEps(pct) { return 1.0 - (pct / 100.0); }
+
+function syncSliders(which) {
+  const slider = document.getElementById(which + '-slider');
+  const display = document.getElementById(which + '-value');
+  display.textContent = slider.value + '%';
+  if (which === 'confident') {
+    const ms = document.getElementById('maybe-slider');
+    if (ms && parseInt(ms.value) >= parseInt(slider.value)) {
+      ms.value = Math.max(parseInt(slider.value) - 5, parseInt(ms.min));
+      document.getElementById('maybe-value').textContent = ms.value + '%';
+    }
+  } else if (which === 'maybe') {
+    const cs = document.getElementById('confident-slider');
+    if (parseInt(slider.value) >= parseInt(cs.value)) {
+      slider.value = Math.max(parseInt(cs.value) - 5, parseInt(slider.min));
+      display.textContent = slider.value + '%';
+    }
+  }
+}
+
+async function startCluster(incremental) {
+  if (activeTaskId) return;
+  setButtonsDisabled(true);
+  const confPct = parseInt(document.getElementById('confident-slider').value);
+  const thr = similarityToEps(confPct);
+  const body = {threshold: thr, incremental: !!incremental};
+  const ms = document.getElementById('maybe-slider');
+  if (ms && incremental) {
+    body.maybe_threshold = similarityToEps(parseInt(ms.value));
+  }
+  showProgress(incremental ? 'Clustering new faces...' : 'Re-clustering from scratch...', 0);
+  const r = await api('/api/cluster', body);
+  if (r.ok) pollTask(r.task_id, t => {
+    if (incremental) {
+      const res = t.result || {};
+      let msg = `${res.assigned||0} matched to existing, ${res.new_clusters||0} new people`;
+      if (res.maybe_clusters) msg += `, ${res.maybe_clusters} maybe matches`;
+      return msg;
+    }
+    return `Found ${t.result?.clusters||0} people`;
+  });
+  else { toast('Error: ' + (r.error||'failed')); setButtonsDisabled(false); hideProgress(); }
+}
+
+async function startExport() {
+  if (activeTaskId) return;
+  const dir = document.getElementById('export-dir').value.trim();
+  if (!dir) { toast('Enter an output folder path first'); return; }
+  setButtonsDisabled(true);
+  showProgress('Exporting...', 0);
+  const r = await api('/api/export', {output_dir: dir, symlink: document.getElementById('export-symlink').checked});
+  if (r.ok) pollTask(r.task_id, t => `Exported ${t.result?.total||0} photos into ${t.result?.people||0} folders`);
+  else { toast('Error: ' + (r.error||'failed')); setButtonsDisabled(false); hideProgress(); }
+}
+
+// ── Folder picker ──
+let _pickerTarget = null;
+let _pickerCurrent = null;
+
+async function openFolderPicker(targetId) {
+  _pickerTarget = targetId;
+  const initial = document.getElementById(targetId)?.value || '';
+  document.getElementById('folder-modal').style.display = 'flex';
+  await browseTo(initial || '');
+}
+function closeFolderPicker() {
+  document.getElementById('folder-modal').style.display = 'none';
+  _pickerTarget = null;
+}
+function confirmFolderPick() {
+  if (_pickerTarget && _pickerCurrent) {
+    const el = document.getElementById(_pickerTarget);
+    if (el) el.value = _pickerCurrent;
+  }
+  closeFolderPicker();
+}
+async function browseTo(path) {
+  let url = '/api/browse';
+  if (path) url += '?path=' + encodeURIComponent(path);
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.error) { toast(data.error); return; }
+    _pickerCurrent = data.current;
+    document.getElementById('browser-path').textContent = data.current;
+    const list = document.getElementById('browser-list');
+    let html = '';
+    if (data.parent) {
+      html += `<div class="browser-item" onclick="browseTo(${JSON.stringify(data.parent)})"
+                    style="padding:0.35rem 0.6rem;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:0.5rem;">
+                 <span style="color:var(--muted);">&#x2191;</span>
+                 <span class="small">..</span>
+               </div>`;
+    }
+    html += data.dirs.map(d =>
+      `<div class="browser-item" onclick="browseTo(${JSON.stringify(d.path)})"
+            style="padding:0.35rem 0.6rem;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:0.5rem;">
+         <span style="color:var(--warning,#e6a817);">&#x1F4C1;</span>
+         <span class="small">${d.name.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>
+       </div>`
+    ).join('');
+    if (!data.dirs.length && !data.parent) {
+      html = '<div class="small muted" style="padding:0.75rem;">Empty or no subdirectories</div>';
+    }
+    list.innerHTML = html;
+    list.querySelectorAll('.browser-item').forEach(el => {
+      el.addEventListener('mouseover', () => el.style.background = 'var(--accent)');
+      el.addEventListener('mouseout',  () => el.style.background = '');
+    });
+  } catch(e) { toast('Error browsing folder'); }
+}
+document.getElementById('folder-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('folder-modal')) closeFolderPicker();
+});
+
+// ── Search and filter ──
+function filterPeople() {
+  const query = (document.getElementById('people-search')?.value || '').toLowerCase();
+  const sort = document.getElementById('people-sort')?.value || 'faces-desc';
+  const filter = document.getElementById('people-filter')?.value || 'all';
+  const grid = document.getElementById('people-grid');
+  if (!grid) return;
+
+  const cards = [...grid.querySelectorAll('.card-wrap')];
+  let visible = 0;
+
+  cards.forEach(card => {
+    const name = (card.querySelector('.name')?.textContent || '').toLowerCase();
+    const cid = parseInt(card.dataset.clusterId);
+    const info = clusterList.find(c => c.id === cid);
+    const clusterName = info?.name || name;
+
+    let show = true;
+    // Search filter
+    if (query && !name.includes(query)) show = false;
+    // Category filter
+    if (filter === 'named' && /^(Person_\d{3,}|maybe .*)$/.test(clusterName)) show = false;
+    if (filter === 'auto' && !/^Person_\d{3,}$/.test(clusterName)) show = false;
+    if (filter === 'maybe' && !clusterName.startsWith('maybe ')) show = false;
+
+    card.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  // Sort
+  const sortedCards = cards.filter(c => c.style.display !== 'none');
+  sortedCards.sort((a, b) => {
+    const nameA = (a.querySelector('.name')?.textContent || '').toLowerCase();
+    const nameB = (b.querySelector('.name')?.textContent || '').toLowerCase();
+    const countA = parseInt(a.querySelector('.count')?.textContent) || 0;
+    const countB = parseInt(b.querySelector('.count')?.textContent) || 0;
+    if (sort === 'name-asc') return nameA.localeCompare(nameB);
+    if (sort === 'name-desc') return nameB.localeCompare(nameA);
+    if (sort === 'faces-asc') return countA - countB;
+    return countB - countA; // faces-desc default
+  });
+  sortedCards.forEach(c => grid.appendChild(c));
+  // Move hidden cards to the end
+  cards.filter(c => c.style.display === 'none').forEach(c => grid.appendChild(c));
+
+  // Update count
+  const countEl = document.getElementById('filter-count');
+  if (countEl) {
+    const total = cards.length;
+    countEl.textContent = visible === total ? '' : `Showing ${visible} of ${total}`;
+  }
+  document.getElementById('people-count').textContent = `(${visible})`;
+}
+
+// ── Batch operations ──
+function getSelectedClusterIds() {
+  return [...document.querySelectorAll('.card-select:checked')].map(cb => parseInt(cb.dataset.clusterId));
+}
+
+function updateBatchSelection() {
+  const selected = getSelectedClusterIds();
+  const bar = document.getElementById('batch-bar');
+  const countEl = document.getElementById('batch-count');
+  countEl.textContent = selected.length;
+  bar.classList.toggle('visible', selected.length > 0);
+
+  document.querySelectorAll('.card-wrap').forEach(wrap => {
+    const cb = wrap.querySelector('.card-select');
+    wrap.classList.toggle('batch-selected', cb && cb.checked);
+  });
+}
+
+function clearBatchSelection() {
+  document.querySelectorAll('.card-select').forEach(cb => { cb.checked = false; });
+  updateBatchSelection();
+}
+
+async function batchMerge() {
+  const selected = getSelectedClusterIds();
+  const targetId = parseInt(document.getElementById('batch-merge-target').value);
+  if (!targetId) { toast('Select a target person to merge into'); return; }
+  if (selected.includes(targetId)) {
+    // Remove the target from the merge list (can't merge into self)
+    selected.splice(selected.indexOf(targetId), 1);
+  }
+  if (selected.length === 0) { toast('No people to merge'); return; }
+
+  let errors = 0;
+  for (const cid of selected) {
+    const res = await api('/api/merge', {keep_id: targetId, merge_id: cid});
+    if (!res.ok) errors++;
+    else {
+      const wrap = document.querySelector(`.card-wrap[data-cluster-id="${cid}"]`);
+      if (wrap) wrap.remove();
+    }
+  }
+  if (errors) toast(`Merged with ${errors} error(s)`);
+  else toast(`Merged ${selected.length} people`);
+  clearBatchSelection();
+  refreshStats();
+}
+
+async function batchDismiss() {
+  const selected = getSelectedClusterIds();
+  if (selected.length === 0) return;
+  let errors = 0;
+  for (const cid of selected) {
+    const res = await api('/api/dismiss-cluster', {cluster_id: cid});
+    if (!res.ok) errors++;
+    else {
+      const wrap = document.querySelector(`.card-wrap[data-cluster-id="${cid}"]`);
+      if (wrap) wrap.remove();
+    }
+  }
+  if (errors) toast(`Dismissed with ${errors} error(s)`);
+  else toast(`Dismissed ${selected.length} people`);
+  clearBatchSelection();
+  refreshStats();
+}
+
+// ── Keyboard shortcuts ──
+KeyShortcuts.register('/', 'Search people', () => { document.getElementById('people-search')?.focus(); });
+KeyShortcuts.register('s', 'Start scan', () => { document.getElementById('btn-scan')?.click(); });
+KeyShortcuts.register('c', 'Run clustering', () => { (document.getElementById('btn-cluster'))?.click(); });
+KeyShortcuts.register('e', 'Export', () => { document.getElementById('btn-export')?.click(); });
+KeyShortcuts.init();
+
+// ── Inline editable names on dashboard cards ──
+document.querySelectorAll('.card .name[data-cluster-id]').forEach(el => {
+  const cid = parseInt(el.dataset.clusterId);
+  makeInlineEditable(el, cid);
+});
+
+// ── Dashboard drop targets: person cards accept face drops ──
+document.querySelectorAll('.card-wrap[data-cluster-id]').forEach(wrap => {
+  const targetId = parseInt(wrap.dataset.clusterId);
+  DragDrop.initDropTarget(wrap, async (data) => {
+    if (data.sourceClusterId === targetId) return;
+    const res = await DragDrop.moveFaces(data.faceIds, targetId, data.sourceClusterId);
+    if (res.ok) {
+      toast(`Moved ${data.faceIds.length} face(s) to ${res.target_name}`);
+      refreshStats();
+    } else {
+      toast('Error: ' + (res.error || 'failed'));
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Timeline - FaceOrganizer{% endblock %}
+{% block content %}
+
+{% if not timeline_data %}
+<div class="empty-state">
+  <div class="icon">&#x1F4C5;</div>
+  <h3 style="margin-bottom:0.5rem;">No timeline data available</h3>
+  <p>Photos need EXIF date information to appear on the timeline. Scan your photos first, then come back here.</p>
+  <a href="/" class="btn btn-primary" style="margin-top:0.75rem;text-decoration:none;">Go to dashboard</a>
+</div>
+{% else %}
+
+<h1>Timeline</h1>
+<p class="muted mb-1">Photos organized by date. Click a face to view the full photo.</p>
+
+<div class="filter-bar">
+  <input type="text" class="search-input" id="timeline-search" placeholder="Filter by person name..." oninput="filterTimeline()">
+  <span class="filter-count" id="timeline-filter-count"></span>
+</div>
+
+<div id="timeline-container">
+{% for date, faces in timeline_data.items() %}
+<div class="timeline-day" data-date="{{ date }}">
+  <div class="timeline-date-header">
+    <h2 class="timeline-date">{{ date }}</h2>
+    <span class="muted small">{{ faces|length }} face{{ 's' if faces|length != 1 }}</span>
+  </div>
+  <div class="face-grid">
+    {% for f in faces %}
+    <div class="face-tile" data-face-id="{{ f.face_id }}" data-cluster-name="{{ f.cluster_name|lower }}">
+      <img src="/thumb/{{ f.face_id }}" alt="Face #{{ f.face_id }}" onclick="openLightbox('/photo/{{ f.face_id }}')" title="{{ f.cluster_name }}">
+      <span class="face-badge">{{ '%.0f'|format(f.confidence * 100) }}%</span>
+      {% if f.cluster_id %}
+      <a href="/person/{{ f.cluster_id }}" class="timeline-label" title="Go to {{ f.cluster_name }}" onclick="event.stopPropagation()">{{ f.cluster_name }}</a>
+      {% else %}
+      <span class="timeline-label" style="color:var(--muted);">Unclustered</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+</div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .timeline-date-header { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.5rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--accent); }
+  .timeline-date { margin: 0; font-size: 1.1rem; }
+  .timeline-day { margin-bottom: 1.5rem; }
+  .timeline-label { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.7); color: var(--text); font-size: 0.68rem; padding: 2px 5px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
+  .timeline-label:hover { text-decoration: underline; }
+</style>
+<script>
+KeyShortcuts.init();
+
+function filterTimeline() {
+  const query = (document.getElementById('timeline-search')?.value || '').toLowerCase();
+  const days = document.querySelectorAll('.timeline-day');
+  let totalVisible = 0;
+
+  days.forEach(day => {
+    const tiles = day.querySelectorAll('.face-tile');
+    let dayVisible = 0;
+    tiles.forEach(tile => {
+      const name = tile.dataset.clusterName || '';
+      const show = !query || name.includes(query);
+      tile.style.display = show ? '' : 'none';
+      if (show) dayVisible++;
+    });
+    day.style.display = dayVisible > 0 ? '' : 'none';
+    totalVisible += dayVisible;
+  });
+
+  const countEl = document.getElementById('timeline-filter-count');
+  if (countEl) {
+    countEl.textContent = query ? `Showing ${totalVisible} faces` : '';
+  }
+}
+</script>
+{% endblock %}

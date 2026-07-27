@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "faceorganizer"
+version = "0.2.0"
+description = "Detect, cluster, and organize photos by the faces in them — native desktop app"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python-headless>=4.8.0",
+    "Pillow>=10.0.0",
+    "pillow-heif>=0.16.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "onnxruntime>=1.16.0",
+    "PySide6>=6.6.0",
+    "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+gpu = ["onnxruntime-directml>=1.16.0"]
+cuda = ["onnxruntime-gpu>=1.16.0"]
+dev = ["pytest>=7.0.0", "ruff>=0.3.0", "pyinstaller>=6.0.0"]
+
+[project.scripts]
+faceorganizer = "faceorganizer.__main__:main"
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

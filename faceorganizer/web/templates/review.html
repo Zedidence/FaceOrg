@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Review - FaceOrganizer{% endblock %}
+{% block content %}
+
+{% if not cluster_data %}
+<div class="empty-state">
+  <div class="icon">&#x1F50D;</div>
+  <h3 style="margin-bottom:0.5rem;">Nothing to review yet</h3>
+  <p>Once you've scanned photos and run clustering, you can compare and merge people here.</p>
+  <a href="/" class="btn btn-primary" style="margin-top:0.75rem;text-decoration:none;">Go to dashboard</a>
+</div>
+{% else %}
+
+<h1>Review & Compare</h1>
+<p class="muted mb-1">Pick two people to compare side-by-side. <strong>Drag</strong> faces between panels to reassign, or merge entire clusters with the buttons.</p>
+
+<div class="panel">
+  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:1rem;align-items:start;">
+
+    <!-- Left side -->
+    <div>
+      <label class="small muted" style="display:block;margin-bottom:0.4rem;">Person A</label>
+      <select id="left-cluster" onchange="updatePreview('left')" style="width:100%;">
+        <option value="">Choose a person...</option>
+        {% for cd in cluster_data %}
+        <option value="{{ cd.cluster.id }}">{{ cd.cluster.name }} ({{ cd.cluster.face_count }})</option>
+        {% endfor %}
+      </select>
+      <h2 id="left-label" class="muted" style="font-size:1rem;margin:0.75rem 0 0.5rem;">Select a person</h2>
+      <div class="face-grid" id="left-preview"></div>
+    </div>
+
+    <!-- Merge controls -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;padding-top:2rem;">
+      <button class="btn btn-primary btn-sm" onclick="mergeDirection('left-into-right')" title="Move A's faces into B">A &rarr; B</button>
+      <span class="small muted">merge</span>
+      <button class="btn btn-primary btn-sm" onclick="mergeDirection('right-into-left')" title="Move B's faces into A">B &rarr; A</button>
+    </div>
+
+    <!-- Right side -->
+    <div>
+      <label class="small muted" style="display:block;margin-bottom:0.4rem;">Person B</label>
+      <select id="right-cluster" onchange="updatePreview('right')" style="width:100%;">
+        <option value="">Choose a person...</option>
+        {% for cd in cluster_data %}
+        <option value="{{ cd.cluster.id }}">{{ cd.cluster.name }} ({{ cd.cluster.face_count }})</option>
+        {% endfor %}
+      </select>
+      <h2 id="right-label" class="muted" style="font-size:1rem;margin:0.75rem 0 0.5rem;">Select a person</h2>
+      <div class="face-grid" id="right-preview"></div>
+    </div>
+  </div>
+</div>
+
+<h2>All People</h2>
+<p class="muted small mb-1">Click a person to view their full detail page.</p>
+<div class="grid">
+  {% for cd in cluster_data %}
+  <a class="card" href="/person/{{ cd.cluster.id }}">
+    {% if cd.faces %}
+    <img src="/thumb/{{ cd.faces[0].face_id }}" alt="{{ cd.cluster.name }}" loading="lazy">
+    {% else %}
+    <div style="width:100%;aspect-ratio:1;background:var(--accent);display:flex;align-items:center;justify-content:center;color:var(--faint);">?</div>
+    {% endif %}
+    <div class="info">
+      <div class="name">{{ cd.cluster.name }}</div>
+      <div class="count">{{ cd.cluster.face_count }} face{{ 's' if cd.cluster.face_count != 1 }}</div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const clusterFaces = {
+  {% for cd in cluster_data %}
+  {{ cd.cluster.id }}: { name: {{ cd.cluster.name | tojson }}, faces: [{% for f in cd.faces %}{{ f.face_id }},{% endfor %}] },
+  {% endfor %}
+};
+
+function updatePreview(side) {
+  const sel = document.getElementById(side + '-cluster');
+  const preview = document.getElementById(side + '-preview');
+  const label = document.getElementById(side + '-label');
+  const cid = sel.value;
+  if (!cid || !clusterFaces[cid]) {
+    preview.innerHTML = '';
+    label.textContent = 'Select a person';
+    label.classList.add('muted');
+    return;
+  }
+  const info = clusterFaces[cid];
+  label.textContent = info.name;
+  label.classList.remove('muted');
+  preview.innerHTML = info.faces.map(fid =>
+    `<div class="face-tile"><img src="/thumb/${fid}" onclick="openLightbox('/photo/${fid}')"></div>`
+  ).join('');
+}
+
+async function mergeDirection(dir) {
+  const aId = document.getElementById('left-cluster').value;
+  const bId = document.getElementById('right-cluster').value;
+  if (!aId || !bId) { toast('Select both Person A and Person B first'); return; }
+  if (aId === bId) { toast('Choose two different people'); return; }
+
+  let keepId, mergeId, keepName, mergeName;
+  if (dir === 'left-into-right') {
+    mergeId = aId; keepId = bId;
+    mergeName = clusterFaces[aId].name; keepName = clusterFaces[bId].name;
+  } else {
+    mergeId = bId; keepId = aId;
+    mergeName = clusterFaces[bId].name; keepName = clusterFaces[aId].name;
+  }
+
+  const res = await api('/api/merge', {keep_id: parseInt(keepId), merge_id: parseInt(mergeId)});
+  if (res.ok) { toast('Merged!'); setTimeout(() => location.reload(), 800); }
+  else toast('Error: ' + (res.error || 'failed'));
+}
+
+KeyShortcuts.init();
+
+// ── Drag and drop between review panels ──
+function initReviewDragDrop() {
+  // After updating preview, make faces draggable and panels droppable
+  const origUpdate = updatePreview;
+  updatePreview = function(side) {
+    origUpdate(side);
+    const preview = document.getElementById(side + '-preview');
+    const sel = document.getElementById(side + '-cluster');
+    const cid = parseInt(sel.value);
+    if (!cid) return;
+
+    // Make preview faces draggable
+    DragDrop.initDraggableFaces(preview, cid);
+
+    // Make the opposite panel a drop target
+    const otherSide = side === 'left' ? 'right' : 'left';
+    const otherPreview = document.getElementById(otherSide + '-preview');
+    const otherSel = document.getElementById(otherSide + '-cluster');
+
+    // Re-init drop target on both panels
+    ['left', 'right'].forEach(s => {
+      const panel = document.getElementById(s + '-preview');
+      const panelSel = document.getElementById(s + '-cluster');
+      DragDrop.initDropTarget(panel, async (data) => {
+        const targetCid = parseInt(panelSel.value);
+        if (!targetCid || targetCid === data.sourceClusterId) return;
+        const res = await DragDrop.moveFaces(data.faceIds, targetCid, data.sourceClusterId);
+        if (res.ok) {
+          toast(`Moved ${data.faceIds.length} face(s) to ${res.target_name}`);
+          // Remove moved faces from source preview
+          data.faceIds.forEach(fid => {
+            const tile = document.querySelector(`.face-tile[data-face-id="${fid}"]`);
+            if (tile) tile.remove();
+          });
+          // Add face thumbnails to target preview
+          data.faceIds.forEach(fid => {
+            const div = document.createElement('div');
+            div.className = 'face-tile';
+            div.dataset.faceId = fid;
+            div.innerHTML = `<img src="/thumb/${fid}" onclick="openLightbox('/photo/${fid}')">`;
+            panel.appendChild(div);
+          });
+        } else {
+          toast('Error: ' + (res.error || 'failed'));
+        }
+      });
+    });
+  };
+}
+initReviewDragDrop();
+</script>
+{% endblock %}

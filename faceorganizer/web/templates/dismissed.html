@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Dismissed Faces - FaceOrganizer{% endblock %}
+{% block content %}
+<a class="back" href="/">&larr; Back to dashboard</a>
+
+<h1>Dismissed Faces <span class="muted" style="font-weight:400;font-size:1rem;">&mdash; {{ faces|length }} detection{{ 's' if faces|length != 1 }}</span></h1>
+
+{% if not faces %}
+<div class="empty-state">
+  <div class="icon">&#x2705;</div>
+  <h3 style="margin-bottom:0.5rem;">No dismissed faces</h3>
+  <p>When you mark detections as "not a face" they'll appear here so you can undo the dismissal if needed.</p>
+  <a href="/" class="btn btn-secondary" style="margin-top:0.75rem;text-decoration:none;">Back to dashboard</a>
+</div>
+{% else %}
+<p class="hint mb-1">These detections were dismissed as false positives (not real faces). Click <strong>Restore</strong> to bring one back into clustering.</p>
+
+<div class="face-grid">
+  {% for f in faces %}
+  <div class="face-tile" data-face-id="{{ f.face_id }}" style="opacity:0.7;">
+    <img src="/thumb/{{ f.face_id }}" alt="Face #{{ f.face_id }}" onclick="openLightbox('/photo/{{ f.face_id }}')" title="Click to view full photo">
+    <button class="btn btn-sm btn-success" style="position:absolute;bottom:4px;left:4px;right:4px;font-size:0.7rem;padding:3px 0;" onclick="doRestore({{ f.face_id }}, this)">Restore</button>
+    <span class="face-badge">{{ '%.0f'|format(f.confidence * 100) }}%</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+KeyShortcuts.init();
+
+async function doRestore(faceId, btn) {
+  const res = await api('/api/restore', {face_id: faceId});
+  if (res.ok) {
+    toast('Face restored');
+    const tile = btn.closest('.face-tile');
+    if (tile) tile.remove();
+  } else {
+    toast('Error: ' + (res.error || 'failed'));
+  }
+}
+</script>
+{% endblock %}

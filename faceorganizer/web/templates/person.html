@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}{{ cluster.name }} - FaceOrganizer{% endblock %}
+{% block content %}
+<a class="back" href="/">&larr; Back to dashboard</a>
+
+<h1>
+  <span id="display-name" data-cluster-id="{{ cluster.id }}">{{ cluster.name }}</span>
+  <span class="muted" style="font-weight:400;font-size:1rem;">
+    &mdash; {{ cluster.face_count }} face{{ 's' if cluster.face_count != 1 }} across {{ photos_count }} photo{{ 's' if photos_count != 1 }}
+  </span>
+</h1>
+
+<!-- Merge panel -->
+<div class="panel">
+  <h2>Merge into another person</h2>
+  <p class="hint">If this is the same person as another cluster, merge them. All faces will move to the selected person and this cluster will be deleted.</p>
+  <div class="actions">
+    <select id="merge-target" style="min-width:200px;">
+      <option value="">Choose a person...</option>
+      {% for c in all_clusters %}
+        {% if c.id != cluster.id %}
+        <option value="{{ c.id }}">{{ c.name }} ({{ c.face_count }} faces)</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <button class="btn btn-secondary" onclick="doMerge()">Merge</button>
+  </div>
+</div>
+
+<!-- Recluster panel -->
+<div class="panel">
+  <h2>Recluster</h2>
+  <p class="hint">Run DBSCAN on just this cluster's faces to split it into tighter sub-groups. Lower threshold = stricter (more splits).</p>
+  <div class="actions">
+    <label class="small">Threshold:</label>
+    <input type="number" id="recluster-threshold" value="0.40" min="0.05" max="1.0" step="0.05" style="width:80px;">
+    <button class="btn btn-secondary" id="recluster-btn" onclick="doRecluster()">Recluster</button>
+    <div class="spinner" id="recluster-spinner" style="display:none;"></div>
+  </div>
+  <p class="small muted mt-1" id="recluster-status"></p>
+</div>
+
+<!-- Faces -->
+<div class="panel">
+  <h2>Faces</h2>
+  <p class="hint">
+    <strong>Drag</strong> a face to the sidebar to move it to another person, or select multiple with checkboxes first.
+    Click a face to view the full photo.
+    Click <strong>&times;</strong> to dismiss a false detection.
+  </p>
+
+  <div class="face-grid">
+    {% for f in faces %}
+    <div class="face-tile" data-face-id="{{ f.face_id }}">
+      <img src="/thumb/{{ f.face_id }}" alt="Face #{{ f.face_id }}" onclick="openLightbox('/photo/{{ f.face_id }}')" title="Click to view full photo">
+      <label style="position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,0.6);border-radius:4px;padding:2px 5px;display:flex;align-items:center;gap:3px;font-size:0.7rem;">
+        <input type="checkbox" class="face-check" value="{{ f.face_id }}" onchange="updateSelection()"> split
+      </label>
+      <button class="btn-dismiss" onclick="doDismiss({{ f.face_id }})" title="Not a face &mdash; dismiss this detection">&times;</button>
+      <span class="face-badge">{{ '%.0f'|format(f.confidence * 100) }}%</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="actions mt-1" id="split-controls" style="display:none;">
+    <span class="small"><strong id="split-count">0</strong> selected</span>
+    <input type="text" id="split-name" placeholder="New person name (optional)" style="width:220px;">
+    <button class="btn btn-secondary" onclick="doSplit()">Split selected into new person</button>
+  </div>
+</div>
+
+<!-- Drop sidebar for dragging faces to other people -->
+<div class="drop-sidebar" id="drop-sidebar">
+  <h3>Drop face onto a person</h3>
+  {% for c in all_clusters %}
+    {% if c.id != cluster.id %}
+    <div class="drop-sidebar-item" data-cluster-id="{{ c.id }}">
+      {% if c._rep_face_id %}
+      <img src="/thumb/{{ c._rep_face_id }}" alt="{{ c.name }}">
+      {% else %}
+      <div style="width:40px;height:40px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:0.8rem;">?</div>
+      {% endif %}
+      <div>
+        <div class="name">{{ c.name }}</div>
+        <div class="count">{{ c.face_count }} faces</div>
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+  <div class="drop-sidebar-new" id="drop-new-person">
+    + New person
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const clusterId = {{ cluster.id }};
+
+function getSelected() {
+  return [...document.querySelectorAll('.face-check:checked')].map(cb => cb.value);
+}
+
+function updateSelection() {
+  const sel = getSelected();
+  const controls = document.getElementById('split-controls');
+  controls.style.display = sel.length > 0 ? 'flex' : 'none';
+  document.getElementById('split-count').textContent = sel.length;
+  document.querySelectorAll('.face-tile').forEach(tile => {
+    const cb = tile.querySelector('.face-check');
+    tile.classList.toggle('selected', cb && cb.checked);
+  });
+}
+
+// Inline editable name
+makeInlineEditable(document.getElementById('display-name'), clusterId, (newName) => {
+  document.title = newName + ' - FaceOrganizer';
+});
+
+async function doMerge() {
+  const target = document.getElementById('merge-target');
+  if (!target.value) { toast('Select a person to merge into'); return; }
+  const targetName = target.options[target.selectedIndex].text;
+  const res = await api('/api/merge', {keep_id: parseInt(target.value), merge_id: clusterId});
+  if (res.ok) { toast('Merged!'); setTimeout(() => location.href = '/person/' + target.value, 800); }
+  else toast('Error: ' + (res.error || 'failed'));
+}
+
+async function doSplit() {
+  const sel = getSelected();
+  if (sel.length === 0) { toast('Select faces to split out'); return; }
+  const name = document.getElementById('split-name').value.trim();
+  const threshold = parseFloat(document.getElementById('recluster-threshold')?.value);
+  const body = {face_ids: sel.map(fid => parseInt(fid)), name: name || undefined};
+  if (!isNaN(threshold) && threshold > 0) body.threshold = threshold;
+  const res = await api('/api/split-batch', body);
+  if (!res.ok) toast('Split error: ' + (res.error || 'failed'));
+  else toast('Split ' + sel.length + ' face(s) into ' + res.new_cluster_ids.length + ' group(s)');
+  setTimeout(() => location.reload(), 800);
+}
+
+async function doRecluster() {
+  const threshold = parseFloat(document.getElementById('recluster-threshold').value);
+  if (isNaN(threshold) || threshold <= 0) { toast('Invalid threshold'); return; }
+  const btn = document.getElementById('recluster-btn');
+  const spinner = document.getElementById('recluster-spinner');
+  const status = document.getElementById('recluster-status');
+  btn.disabled = true;
+  spinner.style.display = 'inline-block';
+  status.textContent = 'Starting recluster...';
+
+  const res = await api('/api/recluster', {cluster_id: clusterId, threshold});
+  if (!res.ok && !res.task_id) {
+    status.textContent = 'Error: ' + (res.error || 'failed');
+    btn.disabled = false;
+    spinner.style.display = 'none';
+    return;
+  }
+
+  // Poll the background task
+  const taskId = res.task_id;
+  const poll = setInterval(async () => {
+    let r;
+    try { r = await (await fetch('/api/task/' + taskId)).json(); } catch(e) { return; }
+    if (r.status === 'done') {
+      clearInterval(poll);
+      spinner.style.display = 'none';
+      const result = r.result || {};
+      if (result.new_clusters === 0 && result.noise === 0) {
+        status.textContent = 'Cluster is already cohesive — no changes made.';
+        btn.disabled = false;
+      } else {
+        status.textContent = 'Split into ' + result.new_clusters + ' new sub-cluster(s), ' + result.noise + ' face(s) became unassigned.';
+        toast('Recluster complete — reloading...');
+        setTimeout(() => location.reload(), 1200);
+      }
+    } else if (r.status === 'error') {
+      clearInterval(poll);
+      spinner.style.display = 'none';
+      status.textContent = 'Error: ' + (r.message || 'unknown error');
+      btn.disabled = false;
+    }
+  }, 1000);
+}
+
+async function doDismiss(faceId) {
+  const res = await api('/api/dismiss', {face_id: faceId});
+  if (res.ok) {
+    toast('Face dismissed');
+    const tile = document.querySelector(`.face-tile[data-face-id="${faceId}"]`);
+    if (tile) tile.remove();
+  } else {
+    toast('Error: ' + (res.error || 'failed'));
+  }
+}
+
+// ── Keyboard shortcuts ──
+KeyShortcuts.register('n', 'Rename person', () => {
+  document.getElementById('display-name').click();
+});
+KeyShortcuts.register('a', 'Select all faces', () => {
+  document.querySelectorAll('.face-check').forEach(cb => { cb.checked = true; });
+  updateSelection();
+});
+KeyShortcuts.register('shift+a', 'Deselect all', () => {
+  document.querySelectorAll('.face-check').forEach(cb => { cb.checked = false; });
+  updateSelection();
+});
+KeyShortcuts.init();
+
+// ── Drag and drop ──
+(function() {
+  const faceGrid = document.querySelector('.face-grid');
+  if (!faceGrid) return;
+
+  // Make all face tiles draggable
+  DragDrop.initDraggableFaces(faceGrid, clusterId);
+
+  // Init drop targets in sidebar
+  document.querySelectorAll('.drop-sidebar-item').forEach(item => {
+    const targetId = parseInt(item.dataset.clusterId);
+    DragDrop.initDropTarget(item, async (data) => {
+      const res = await DragDrop.moveFaces(data.faceIds, targetId, clusterId);
+      if (res.ok) {
+        toast(`Moved ${data.faceIds.length} face(s) to ${res.target_name}`);
+        data.faceIds.forEach(fid => {
+          const tile = document.querySelector(`.face-tile[data-face-id="${fid}"]`);
+          if (tile) tile.remove();
+        });
+      } else {
+        toast('Error: ' + (res.error || 'failed'));
+      }
+    });
+  });
+
+  // "New person" drop target
+  const newPersonDrop = document.getElementById('drop-new-person');
+  if (newPersonDrop) {
+    DragDrop.initDropTarget(newPersonDrop, async (data) => {
+      const res = await api('/api/split-batch', {face_ids: data.faceIds});
+      if (res.ok) {
+        toast('Created ' + res.new_cluster_ids.length + ' group(s) from ' + data.faceIds.length + ' face(s)');
+        data.faceIds.forEach(fid => {
+          const tile = document.querySelector(`.face-tile[data-face-id="${fid}"]`);
+          if (tile) tile.remove();
+        });
+      } else {
+        toast('Error: ' + (res.error || 'failed'));
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

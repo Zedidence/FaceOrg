@@ -219,6 +219,27 @@ Split a single face out of its cluster into a brand-new one:
 python -m faceorganizer split "C:\Users\you\Pictures\Vacation" 42 "New Person"
 ```
 
+### 6c. Find duplicate photos
+
+Every `scan` automatically computes a perceptual hash per photo. Group near-duplicates (resized/re-compressed copies, burst shots) and review them:
+
+```bash
+python -m faceorganizer find-duplicates "C:\Users\you\Pictures\Vacation"
+python -m faceorganizer duplicates "C:\Users\you\Pictures\Vacation"
+```
+
+`find-duplicates` only *finds and lists* groups — nothing is deleted automatically. To remove a photo you've identified as an unwanted duplicate (sends it to the Recycle Bin, not a permanent delete):
+
+```bash
+python -m faceorganizer delete-photo "C:\Users\you\Pictures\Vacation" 3
+```
+
+Use `--threshold` to adjust how strict the match needs to be (out of 64 bits, lower = stricter, default 10):
+
+```bash
+python -m faceorganizer find-duplicates "C:\Users\you\Pictures\Vacation" --threshold 6
+```
+
 ### 7. View cluster summary
 
 ```bash

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from faceorganizer import __version__
-from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD
+from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD, DEFAULT_DUPLICATE_HAMMING_THRESHOLD
 from faceorganizer.logging_config import get_logger, setup_logging
 
 log = get_logger("cli")
@@ -137,6 +137,52 @@ def cmd_show(args: argparse.Namespace) -> None:
         print(f"  ... and {len(clusters) - 20} more")
 
 
+def cmd_find_duplicates(args: argparse.Namespace) -> None:
+    """Backfill perceptual hashes for old photos, then group near-duplicates."""
+    from faceorganizer import duplicates
+    from faceorganizer.scanner.scan_runner import backfill_phashes
+
+    folder = Path(args.folder).resolve()
+    conn = _open_db_or_exit(folder)
+
+    backfilled = backfill_phashes(conn)
+    if backfilled:
+        print(f"Computed hashes for {backfilled} previously-unhashed photo(s)")
+
+    num_groups = duplicates.run_duplicate_detection(conn, hamming_threshold=args.threshold)
+    conn.close()
+
+    if num_groups == 0:
+        print("No duplicate groups found.")
+    else:
+        print(f"Found {num_groups} duplicate group(s). Run 'duplicates' to view them.")
+
+
+def cmd_duplicates(args: argparse.Namespace) -> None:
+    """Print duplicate photo groups found by the most recent 'find-duplicates' run."""
+    from faceorganizer.database.core import get_duplicate_groups, get_photos_in_duplicate_group
+
+    folder = Path(args.folder).resolve()
+    conn = _open_db_or_exit(folder)
+    groups = get_duplicate_groups(conn)
+
+    if not groups:
+        conn.close()
+        print("No duplicate groups found. Run 'find-duplicates' first.")
+        return
+
+    print(f"{len(groups)} duplicate group(s):\n")
+    for g in groups[:20]:
+        photos = get_photos_in_duplicate_group(conn, g["id"])
+        print(f"  Group {g['id']} ({g['photo_count']} photos):")
+        for p in photos:
+            print(f"    [{p['photo_id']}] {p['path']}  ({p['file_size']} bytes)")
+
+    if len(groups) > 20:
+        print(f"\n  ... and {len(groups) - 20} more group(s)")
+    conn.close()
+
+
 def cmd_export(args: argparse.Namespace) -> None:
     """Export photos organized into per-person folders."""
     from faceorganizer.config import get_db_path
@@ -227,6 +273,23 @@ def cmd_dismiss_cluster(args: argparse.Namespace) -> None:
         conn.close()
 
     print(f"Cluster {args.cluster_id} dismissed: {count} face(s) marked as not-a-face")
+
+
+def cmd_delete_photo(args: argparse.Namespace) -> None:
+    """Send a photo's file to the Recycle Bin and remove it from the database."""
+    from faceorganizer import actions
+
+    folder = Path(args.folder).resolve()
+    conn = _open_db_or_exit(folder)
+    try:
+        actions.delete_photo(conn, args.photo_id)
+    except actions.ActionError as e:
+        print(str(e))
+        sys.exit(1)
+    finally:
+        conn.close()
+
+    print(f"Photo {args.photo_id} sent to the Recycle Bin and removed from the database")
 
 
 def cmd_merge(args: argparse.Namespace) -> None:
@@ -423,6 +486,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_show.add_argument("folder", help="Path to the scanned folder")
     p_show.set_defaults(func=cmd_show)
 
+    # find-duplicates
+    p_find_dup = sub.add_parser(
+        "find-duplicates", help="Find near-duplicate photos by perceptual hash"
+    )
+    p_find_dup.add_argument("folder", help="Path to the scanned folder")
+    p_find_dup.add_argument(
+        "--threshold", type=int, default=DEFAULT_DUPLICATE_HAMMING_THRESHOLD,
+        help=f"Max Hamming distance out of 64 bits (default: "
+             f"{DEFAULT_DUPLICATE_HAMMING_THRESHOLD}, lower = stricter)",
+    )
+    p_find_dup.set_defaults(func=cmd_find_duplicates)
+
+    # duplicates
+    p_duplicates = sub.add_parser("duplicates", help="Show duplicate photo groups")
+    p_duplicates.add_argument("folder", help="Path to the scanned folder")
+    p_duplicates.set_defaults(func=cmd_duplicates)
+
     # export
     p_export = sub.add_parser("export", help="Export photos into per-person folders")
     p_export.add_argument("folder", help="Path to the scanned folder")
@@ -456,6 +536,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_dismiss_cluster.add_argument("folder", help="Path to the scanned folder")
     p_dismiss_cluster.add_argument("cluster_id", type=int, help="Cluster ID to dismiss")
     p_dismiss_cluster.set_defaults(func=cmd_dismiss_cluster)
+
+    # delete-photo
+    p_delete_photo = sub.add_parser(
+        "delete-photo", help="Send a photo's file to the Recycle Bin and remove it"
+    )
+    p_delete_photo.add_argument("folder", help="Path to the scanned folder")
+    p_delete_photo.add_argument("photo_id", type=int, help="Photo ID to delete")
+    p_delete_photo.set_defaults(func=cmd_delete_photo)
 
     # serve
     p_serve = sub.add_parser("serve", help="Launch the web review UI")

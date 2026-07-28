@@ -12,8 +12,9 @@ import pytest
 from faceorganizer import __version__
 from faceorganizer.cli.commands import main
 from faceorganizer.config import get_db_path
-from faceorganizer.database.core import insert_cluster
+from faceorganizer.database.core import insert_cluster, insert_photo
 from faceorganizer.database.schema import init_db
+from faceorganizer.models import PhotoInfo
 
 from .conftest import add_faces, add_photo, make_embedding, make_similar_embedding
 
@@ -181,3 +182,56 @@ class TestRecluster:
 
         main(["recluster", str(folder), str(cid), "--threshold", "0.55"])
         assert "Recluster complete" in capsys.readouterr().out
+
+
+class TestFindDuplicatesAndDuplicates:
+    def test_no_hashed_photos_reports_none_found(self, scanned_folder, capsys):
+        folder, _conn = scanned_folder
+        main(["find-duplicates", str(folder)])
+        assert "No duplicate groups found" in capsys.readouterr().out
+
+    def test_finds_and_lists_duplicate_groups(self, scanned_folder, capsys, tmp_path):
+        folder, conn = scanned_folder
+        insert_photo(conn, PhotoInfo(
+            path=str(tmp_path / "a1.jpg"), file_size=100, width=200, height=200,
+            format="JPEG", phash="8f8f8f8f8f8f8f8f",
+        ))
+        insert_photo(conn, PhotoInfo(
+            path=str(tmp_path / "a2.jpg"), file_size=100, width=200, height=200,
+            format="JPEG", phash="8f8f8f8f8f8f8f8d",
+        ))
+
+        main(["find-duplicates", str(folder)])
+        assert "Found 1 duplicate group(s)" in capsys.readouterr().out
+
+        main(["duplicates", str(folder)])
+        out = capsys.readouterr().out
+        assert "1 duplicate group(s)" in out
+        assert "a1.jpg" in out
+        assert "a2.jpg" in out
+
+    def test_duplicates_without_prior_detection(self, scanned_folder, capsys):
+        folder, _conn = scanned_folder
+        main(["duplicates", str(folder)])
+        assert "Run 'find-duplicates' first" in capsys.readouterr().out
+
+
+class TestDeletePhoto:
+    def test_delete_photo_success(self, scanned_folder, capsys, tmp_path):
+        folder, conn = scanned_folder
+        src = tmp_path / "photo.jpg"
+        src.write_bytes(b"data")
+        photo_id = insert_photo(conn, PhotoInfo(
+            path=str(src), file_size=4, width=10, height=10, format="JPEG",
+        ))
+
+        main(["delete-photo", str(folder), str(photo_id)])
+
+        assert "sent to the Recycle Bin" in capsys.readouterr().out
+        assert not src.exists()
+
+    def test_delete_photo_missing_exits_nonzero(self, scanned_folder):
+        folder, _conn = scanned_folder
+        with pytest.raises(SystemExit) as exc:
+            main(["delete-photo", str(folder), "9999"])
+        assert exc.value.code == 1

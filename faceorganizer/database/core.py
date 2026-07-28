@@ -546,3 +546,97 @@ def get_scan_stats(conn: sqlite3.Connection) -> dict:
         "unclustered_faces": unclustered,
         "dismissed_faces": dismissed,
     }
+
+
+# ── Duplicate photo groups ──────────────────────────────────────────────────
+# Mirrors the clusters/faces.cluster_id pattern above, but groups *photos* by
+# perceptual-hash similarity rather than *faces* by embedding similarity.
+
+def insert_duplicate_group(conn: sqlite3.Connection) -> int:
+    """Insert a new (empty) duplicate group. Returns the row id."""
+    cur = conn.execute("INSERT INTO duplicate_groups DEFAULT VALUES")
+    conn.commit()
+    return cur.lastrowid
+
+
+def clear_duplicate_groups(conn: sqlite3.Connection) -> None:
+    """Remove all duplicate-group assignments and group records (for re-detection)."""
+    conn.execute("UPDATE photos SET duplicate_group_id = NULL")
+    conn.execute("DELETE FROM duplicate_groups")
+    conn.commit()
+    log.info("Cleared all duplicate-group assignments")
+
+
+def update_photo_duplicate_groups_batch(
+    conn: sqlite3.Connection, assignments: list[tuple[int | None, int]]
+) -> None:
+    """Batch update duplicate-group assignments. Each tuple is (group_id, photo_id)."""
+    conn.executemany(
+        "UPDATE photos SET duplicate_group_id = ? WHERE id = ?", assignments
+    )
+    conn.commit()
+    log.debug("Batch-assigned %d photo(s) to duplicate groups", len(assignments))
+
+
+def get_duplicate_groups(conn: sqlite3.Connection) -> list[dict]:
+    """Get all duplicate groups with photo counts, largest group first."""
+    cur = conn.execute(
+        """SELECT dg.id, COUNT(p.id) as photo_count
+           FROM duplicate_groups dg
+           JOIN photos p ON p.duplicate_group_id = dg.id
+           GROUP BY dg.id
+           ORDER BY photo_count DESC"""
+    )
+    return [{"id": row[0], "photo_count": row[1]} for row in cur.fetchall()]
+
+
+def get_photos_in_duplicate_group(conn: sqlite3.Connection, group_id: int) -> list[dict]:
+    """Get all photos in a duplicate group, largest file first (usually the
+    highest-quality copy, a reasonable default for the user to keep)."""
+    cur = conn.execute(
+        """SELECT id, path, width, height, file_size
+           FROM photos
+           WHERE duplicate_group_id = ?
+           ORDER BY file_size DESC""",
+        (group_id,),
+    )
+    return [
+        {
+            "photo_id": row[0], "path": row[1],
+            "width": row[2], "height": row[3], "file_size": row[4],
+        }
+        for row in cur.fetchall()
+    ]
+
+
+def get_photo_by_id(conn: sqlite3.Connection, photo_id: int) -> dict | None:
+    """Get a single photo by id."""
+    cur = conn.execute(
+        """SELECT id, path, width, height, file_size, duplicate_group_id
+           FROM photos WHERE id = ?""",
+        (photo_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "photo_id": row[0], "path": row[1],
+        "width": row[2], "height": row[3], "file_size": row[4],
+        "duplicate_group_id": row[5],
+    }
+
+
+def delete_photo(conn: sqlite3.Connection, photo_id: int) -> bool:
+    """Delete a photo and its faces from the database. Returns True if it existed.
+
+    Does not touch the file on disk — callers that also want the file removed
+    (e.g. faceorganizer.actions.delete_photo) handle that separately.
+    """
+    conn.execute("DELETE FROM faces WHERE photo_id = ?", (photo_id,))
+    cur = conn.execute("DELETE FROM photos WHERE id = ?", (photo_id,))
+    conn.commit()
+    if cur.rowcount == 0:
+        log.warning("delete_photo: photo %d not found", photo_id)
+        return False
+    log.info("Deleted photo %d from database", photo_id)
+    return True

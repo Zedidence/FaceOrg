@@ -16,8 +16,13 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
+import send2trash
+
 from faceorganizer.clustering.cluster import run_recluster, split_faces_by_similarity
 from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD, MIN_CLUSTER_SIZE
+from faceorganizer.database.core import (
+    delete_photo as _db_delete_photo,
+)
 from faceorganizer.database.core import (
     dismiss_cluster as _db_dismiss_cluster,
 )
@@ -27,14 +32,18 @@ from faceorganizer.database.core import (
 from faceorganizer.database.core import (
     get_cluster_by_id,
     get_face_by_id,
+    get_photo_by_id,
     merge_clusters,
     move_face_to_new_cluster,
 )
 from faceorganizer.database.core import (
     restore_face as _db_restore_face,
 )
+from faceorganizer.logging_config import get_logger
 from faceorganizer.organizer.export import export_by_person
 from faceorganizer.organizer.naming import rename_person, rename_person_full, sanitize_name
+
+log = get_logger("actions")
 
 __all__ = [
     "ActionError",
@@ -48,6 +57,7 @@ __all__ = [
     "dismiss_cluster",
     "recluster_person",
     "export_people",
+    "delete_photo",
 ]
 
 
@@ -145,3 +155,24 @@ def export_people(
     return export_by_person(
         conn, output_dir, symlink=symlink, on_progress=on_progress, stop_event=stop_event
     )
+
+
+def delete_photo(conn: sqlite3.Connection, photo_id: int) -> None:
+    """Send a photo's file to the OS Recycle Bin and remove it from the database.
+
+    If the file no longer exists on disk (already moved/deleted outside the
+    app), only the database record is removed — this is not treated as an
+    error, since the end state the caller wants (photo gone) is still reached.
+    """
+    photo = get_photo_by_id(conn, photo_id)
+    if photo is None:
+        raise ActionError("photo not found", status=404)
+
+    path = Path(photo["path"])
+    if path.exists():
+        send2trash.send2trash(str(path))
+        log.info("Sent %s to the Recycle Bin", path)
+    else:
+        log.warning("delete_photo: %s no longer exists on disk", path)
+
+    _db_delete_photo(conn, photo_id)

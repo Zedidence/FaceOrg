@@ -211,3 +211,34 @@ class TestExport:
 
         assert summary == {"Alice": 1}
         assert (out_dir / "Alice" / "src.jpg").read_bytes() == b"fake image data"
+
+
+class TestDeletePhoto:
+    def test_missing_photo_raises_404(self, conn):
+        with pytest.raises(actions.ActionError) as exc:
+            actions.delete_photo(conn, 9999)
+        assert exc.value.status == 404
+
+    def test_sends_file_to_recycle_bin_and_removes_db_record(self, conn, tmp_path):
+        from faceorganizer.database.core import get_photo_by_id
+
+        src = tmp_path / "photo.jpg"
+        src.write_bytes(b"data")
+        photo_id = add_photo(conn, path=str(src))
+
+        actions.delete_photo(conn, photo_id)
+
+        assert not src.exists()
+        assert get_photo_by_id(conn, photo_id) is None
+
+    def test_missing_file_on_disk_still_removes_db_record(self, conn, tmp_path):
+        """If the file was already moved/deleted outside the app, deleting the
+        photo should still succeed rather than erroring on a missing file."""
+        from faceorganizer.database.core import get_photo_by_id
+
+        gone = tmp_path / "already_gone.jpg"  # never created
+        photo_id = add_photo(conn, path=str(gone))
+
+        actions.delete_photo(conn, photo_id)  # must not raise
+
+        assert get_photo_by_id(conn, photo_id) is None

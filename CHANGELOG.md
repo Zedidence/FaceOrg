@@ -11,6 +11,20 @@ work).
 ## [Unreleased]
 
 ### Added
+- Perceptual near-duplicate photo detection, across all three interfaces:
+  - Every scan now computes a perceptual hash per photo (schema v5:
+    `photos.phash`, `photos.duplicate_group_id`, a new `duplicate_groups`
+    table); `faceorganizer/duplicates.py::run_duplicate_detection()` groups
+    photos by Hamming distance the same way faces are grouped by cosine
+    distance (DBSCAN + ball-tree).
+  - `actions.delete_photo()` sends a photo to the OS Recycle Bin (via
+    `send2trash`) and removes its DB record.
+  - CLI: `find-duplicates`, `duplicates`, `delete-photo`.
+  - Web: a `/duplicates` review page, `/api/detect-duplicates`,
+    `/api/delete-photo`.
+  - Desktop: a `DuplicatesPanel` (Operations → Find Duplicates).
+  - Report-only by design — nothing is deleted automatically; the user
+    reviews each group and picks what to remove.
 - `.github/workflows/ci.yml`: ruff + pytest (with a coverage gate) on every
   push/PR.
 - `faceorganizer/actions.py`: a single shared layer for rename/merge/split/

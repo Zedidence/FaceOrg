@@ -305,8 +305,9 @@ def _store_result(
 
     conn.execute("DELETE FROM photos WHERE path = ?", (str(photo.path),))
     cur = conn.execute(
-        """INSERT INTO photos (path, file_size, width, height, format, exif_date, num_faces)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO photos (path, file_size, width, height, format, exif_date,
+                               num_faces, phash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             str(photo.path),
             photo.file_size,
@@ -315,6 +316,7 @@ def _store_result(
             photo.format,
             photo.exif_date.isoformat() if photo.exif_date else None,
             photo.num_faces,
+            photo.phash,
         ),
     )
     photo_id = cur.lastrowid
@@ -337,3 +339,38 @@ def _store_result(
                 for f in faces
             ],
         )
+
+
+def backfill_phashes(
+    conn: sqlite3.Connection,
+    on_progress: Callable[[int, int], None] | None = None,
+    stop_event: threading.Event | None = None,
+) -> int:
+    """Compute perceptual hashes for photos scanned before duplicate detection
+    existed (or where hashing failed at scan time).
+
+    Much cheaper than a full re-scan: reopens each file with PIL but skips
+    face detection/embedding entirely. Returns the number of photos updated.
+    """
+    from faceorganizer.scanner.face_detector import compute_phash
+
+    rows = conn.execute("SELECT id, path FROM photos WHERE phash IS NULL").fetchall()
+    total = len(rows)
+    updated = 0
+
+    for i, (photo_id, path) in enumerate(rows):
+        if stop_event and stop_event.is_set():
+            break
+        phash = compute_phash(Path(path))
+        if phash is not None:
+            conn.execute("UPDATE photos SET phash = ? WHERE id = ?", (phash, photo_id))
+            updated += 1
+        if (i + 1) % _COMMIT_BATCH == 0:
+            conn.commit()
+        if on_progress:
+            on_progress(i + 1, total)
+
+    conn.commit()
+    if on_progress:
+        on_progress(total, total)  # always emit final state
+    return updated

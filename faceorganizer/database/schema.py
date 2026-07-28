@@ -7,7 +7,7 @@ from faceorganizer.logging_config import get_logger
 
 log = get_logger("database.schema")
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 CREATE_TABLES = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -15,15 +15,22 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 
 CREATE TABLE IF NOT EXISTS photos (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    path        TEXT    NOT NULL UNIQUE,
-    file_size   INTEGER NOT NULL,
-    width       INTEGER NOT NULL,
-    height      INTEGER NOT NULL,
-    format      TEXT    NOT NULL,
-    exif_date   TEXT,
-    num_faces   INTEGER NOT NULL DEFAULT 0,
-    scanned_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    path                TEXT    NOT NULL UNIQUE,
+    file_size           INTEGER NOT NULL,
+    width               INTEGER NOT NULL,
+    height              INTEGER NOT NULL,
+    format              TEXT    NOT NULL,
+    exif_date           TEXT,
+    num_faces           INTEGER NOT NULL DEFAULT 0,
+    scanned_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+    phash               TEXT,
+    duplicate_group_id  INTEGER REFERENCES duplicate_groups(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS duplicate_groups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS faces (
@@ -106,6 +113,16 @@ def init_db(db_path: Path) -> sqlite3.Connection:
 
     # Apply migrations
     _migrate(conn)
+
+    # Created here rather than in CREATE_TABLES or a migration block: by this
+    # point photos.duplicate_group_id is guaranteed to exist (either from a
+    # fresh CREATE_TABLES or the v5 ALTER TABLE above), whereas CREATE_TABLES
+    # runs in full *before* _migrate() and would crash trying to index a
+    # column that doesn't exist yet on a database being upgraded from < v5.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_duplicate_group_id "
+        "ON photos(duplicate_group_id)"
+    )
     conn.commit()
     return conn
 
@@ -163,3 +180,31 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
         conn.execute("UPDATE schema_version SET version = 4")
         log.info("Migration v4: created idx_faces_dismissed and idx_faces_cluster_dismissed")
+        current = 4
+
+    if current < 5:
+        # Add perceptual-hash duplicate detection support. phash is left NULL
+        # on existing rows — no need to force a full re-scan like v3 did,
+        # since a missing hash isn't destructive; it's backfilled lazily
+        # (scan_runner.backfill_phashes) the next time duplicate detection runs.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS duplicate_groups ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')))"
+        )
+        try:
+            conn.execute("ALTER TABLE photos ADD COLUMN phash TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists (e.g. from re-init)
+        try:
+            conn.execute(
+                "ALTER TABLE photos ADD COLUMN duplicate_group_id INTEGER "
+                "REFERENCES duplicate_groups(id) ON DELETE SET NULL"
+            )
+        except sqlite3.OperationalError:
+            pass
+        # idx_photos_duplicate_group_id is created in init_db(), after this
+        # migration runs — not here, since the column may not exist on this
+        # connection yet if a later migration block in this same pass fails.
+        conn.execute("UPDATE schema_version SET version = 5")
+        log.info("Migration v5: added photos.phash, duplicate_groups table")

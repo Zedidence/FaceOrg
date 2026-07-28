@@ -15,6 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import cv2
+import imagehash
 import numpy as np
 import onnxruntime as ort
 import PIL.Image
@@ -284,6 +285,22 @@ def warmup_models(on_status: Callable[[str], None] | None = None) -> None:
     _get_arcface_session()
 
 
+def compute_phash(image_path: Path) -> str | None:
+    """Compute a perceptual hash for an image file at rest.
+
+    Used by the backfill path (faceorganizer.scanner.scan_runner.backfill_phashes)
+    for photos scanned before duplicate detection existed. detect_faces() below
+    computes its own hash inline from the PIL image it already has open, rather
+    than calling this, to avoid opening the file twice during a real scan.
+    """
+    try:
+        with PIL.Image.open(image_path) as img:
+            return str(imagehash.phash(img))
+    except Exception:
+        log.warning("Failed to compute perceptual hash for %s", image_path.name)
+        return None
+
+
 def detect_faces(image_path: Path) -> tuple[PhotoInfo, list[FaceInfo]]:
     """Detect all faces in an image and extract their embeddings.
 
@@ -320,6 +337,13 @@ def detect_faces(image_path: Path) -> tuple[PhotoInfo, list[FaceInfo]]:
         format=img_format,
         exif_date=exif_date,
     )
+
+    # Perceptual hash for duplicate detection — computed here while pil_img is
+    # still open, so it costs no extra file I/O.
+    try:
+        photo.phash = str(imagehash.phash(pil_img))
+    except Exception:
+        log.warning("Failed to compute perceptual hash for %s", image_path.name)
 
     # Convert to BGR numpy array for OpenCV
     img_rgb = np.array(pil_img.convert("RGB"))

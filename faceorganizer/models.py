@@ -21,6 +21,7 @@ class PhotoInfo:
     exif_date: datetime | None = None
     num_faces: int = 0
     id: int | None = None
+    phash: str | None = None
 
 
 @dataclass

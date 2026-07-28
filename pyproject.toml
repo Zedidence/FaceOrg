@@ -18,6 +18,8 @@ dependencies = [
     "psutil>=5.9.0",
     "Flask>=3.0.0",
     "tqdm>=4.66.0",
+    "ImageHash>=4.3.0",
+    "send2trash>=1.8.0",
 ]
 
 [project.optional-dependencies]

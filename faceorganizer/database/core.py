@@ -20,8 +20,9 @@ _AUTO_OR_MAYBE_RE = re.compile(r"^(Person_\d{3,}|maybe .*)$")
 def insert_photo(conn: sqlite3.Connection, photo: PhotoInfo) -> int:
     """Insert a photo record. Returns the new row id."""
     cur = conn.execute(
-        """INSERT INTO photos (path, file_size, width, height, format, exif_date, num_faces)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO photos (path, file_size, width, height, format, exif_date,
+                               num_faces, phash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             str(photo.path),
             photo.file_size,
@@ -30,6 +31,7 @@ def insert_photo(conn: sqlite3.Connection, photo: PhotoInfo) -> int:
             photo.format,
             photo.exif_date.isoformat() if photo.exif_date else None,
             photo.num_faces,
+            photo.phash,
         ),
     )
     conn.commit()

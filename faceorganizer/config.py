@@ -22,6 +22,10 @@ def eps_to_similarity(eps: float) -> float:
     """Convert cosine distance eps to user-facing similarity %."""
     return (1.0 - eps) * 100.0
 
+# Duplicate-photo detection defaults (64-bit perceptual hash via imagehash.phash)
+DEFAULT_DUPLICATE_HAMMING_THRESHOLD = 10  # out of 64 bits; a common "likely same image" cutoff
+MIN_DUPLICATE_GROUP_SIZE = 2  # a "duplicate group" needs at least 2 photos
+
 # Face detection confidence threshold
 MIN_DETECTION_CONFIDENCE = 0.9
 

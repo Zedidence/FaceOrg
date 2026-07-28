@@ -170,8 +170,13 @@ def delete_photo(conn: sqlite3.Connection, photo_id: int) -> None:
 
     path = Path(photo["path"])
     if path.exists():
-        send2trash.send2trash(str(path))
-        log.info("Sent %s to the Recycle Bin", path)
+        try:
+            send2trash.send2trash(str(path))
+            log.info("Sent %s to the Recycle Bin", path)
+        except OSError as e:
+            # e.g. another process (an open preview/thumbnail generation) has
+            # the file locked, which can happen transiently on Windows.
+            raise ActionError(f"could not delete file: {e}", status=409) from e
     else:
         log.warning("delete_photo: %s no longer exists on disk", path)
 

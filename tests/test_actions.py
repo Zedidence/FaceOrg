@@ -242,3 +242,24 @@ class TestDeletePhoto:
         actions.delete_photo(conn, photo_id)  # must not raise
 
         assert get_photo_by_id(conn, photo_id) is None
+
+    def test_locked_file_raises_action_error_not_oserror(self, conn, tmp_path, monkeypatch):
+        """A file locked by another process (observed transiently on Windows
+        when something else has it open) should surface as a clean
+        ActionError, not an unhandled 500-worthy OSError."""
+        from faceorganizer.database.core import get_photo_by_id
+
+        src = tmp_path / "locked.jpg"
+        src.write_bytes(b"data")
+        photo_id = add_photo(conn, path=str(src))
+
+        def _raise(_path):
+            raise OSError("The process cannot access the file")
+
+        monkeypatch.setattr(actions.send2trash, "send2trash", _raise)
+
+        with pytest.raises(actions.ActionError) as exc:
+            actions.delete_photo(conn, photo_id)
+        assert exc.value.status == 409
+        # The DB record must NOT be removed if the file couldn't actually be deleted.
+        assert get_photo_by_id(conn, photo_id) is not None

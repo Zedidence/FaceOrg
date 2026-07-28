@@ -12,8 +12,9 @@ import time
 import pytest
 
 from faceorganizer.config import get_db_path
-from faceorganizer.database.core import insert_cluster
+from faceorganizer.database.core import insert_cluster, insert_photo
 from faceorganizer.database.schema import init_db
+from faceorganizer.models import PhotoInfo
 from faceorganizer.web.app import create_app
 
 from .conftest import add_faces, add_photo, make_embedding, make_similar_embedding
@@ -240,3 +241,75 @@ class TestPersonPageTemplate:
         assert resp.status_code == 200
         assert 'id="split-threshold"' in html
         assert 'id="recluster-threshold"' in html
+
+
+class TestDuplicatesPage:
+    def test_empty_state(self, web):
+        client, _conn = web
+        resp = client.get("/duplicates")
+        assert resp.status_code == 200
+        assert "No duplicate groups found" in resp.get_data(as_text=True)
+
+    def test_detect_then_list_groups(self, web, tmp_path):
+        client, conn = web
+        src_a = tmp_path / "a1.jpg"
+        src_b = tmp_path / "a2.jpg"
+        src_a.write_bytes(b"a")
+        src_b.write_bytes(b"b")
+        insert_photo(conn, PhotoInfo(
+            path=str(src_a), file_size=100, width=200, height=200,
+            format="JPEG", phash="8f8f8f8f8f8f8f8f",
+        ))
+        insert_photo(conn, PhotoInfo(
+            path=str(src_b), file_size=90, width=200, height=200,
+            format="JPEG", phash="8f8f8f8f8f8f8f8d",
+        ))
+
+        resp = client.post("/api/detect-duplicates", json={})
+        assert resp.status_code == 200
+        result = _poll_task(client, resp.get_json()["task_id"])
+        assert result["status"] == "done"
+        assert result["result"]["groups"] == 1
+
+        resp = client.get("/duplicates")
+        html = resp.get_data(as_text=True)
+        assert "a1.jpg" in html
+        assert "a2.jpg" in html
+        assert "/duplicate-thumb/" in html
+
+    def test_duplicate_thumb_and_photo_routes(self, web, tmp_path):
+        from PIL import Image
+
+        client, conn = web
+        src = tmp_path / "photo.jpg"
+        Image.new("RGB", (40, 40), color=(10, 20, 30)).save(src)
+        photo_id = insert_photo(conn, PhotoInfo(
+            path=str(src), file_size=100, width=40, height=40, format="JPEG",
+        ))
+
+        resp = client.get(f"/duplicate-thumb/{photo_id}")
+        assert resp.status_code == 200
+        assert resp.content_type == "image/jpeg"
+        resp.close()
+
+        resp = client.get(f"/duplicate-photo/{photo_id}")
+        assert resp.status_code == 200
+        resp.close()
+
+        resp = client.get("/duplicate-thumb/9999")
+        assert resp.status_code == 404
+
+    def test_delete_photo_route(self, web, tmp_path):
+        client, conn = web
+        src = tmp_path / "delete_me.jpg"
+        src.write_bytes(b"data")
+        photo_id = insert_photo(conn, PhotoInfo(
+            path=str(src), file_size=4, width=10, height=10, format="JPEG",
+        ))
+
+        resp = client.post("/api/delete-photo", json={"photo_id": photo_id})
+        assert resp.status_code == 200
+        assert not src.exists()
+
+        resp = client.post("/api/delete-photo", json={"photo_id": 9999})
+        assert resp.status_code == 404

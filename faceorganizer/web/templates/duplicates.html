@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Duplicate Photos - FaceOrganizer{% endblock %}
+{% block content %}
+<style>
+  .dup-item { display: flex; flex-direction: column; gap: 0.25rem; }
+  .dup-item .face-tile { margin: 0; }
+  .dup-item .dup-caption { font-size: 0.7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+</style>
+<a class="back" href="/">&larr; Back to dashboard</a>
+
+<h1>Duplicate Photos <span class="muted" style="font-weight:400;font-size:1rem;">&mdash; {{ groups|length }} group{{ 's' if groups|length != 1 }}</span></h1>
+
+<div class="actions mb-1">
+  <button class="btn btn-secondary" id="detect-btn" onclick="doDetect()">Find Duplicates</button>
+  <div class="spinner" id="detect-spinner" style="display:none;"></div>
+  <span class="small muted" id="detect-status"></span>
+</div>
+
+{% if not groups %}
+<div class="empty-state">
+  <div class="icon">&#x1F5BC;</div>
+  <h3 style="margin-bottom:0.5rem;">No duplicate groups found</h3>
+  <p>Click <strong>Find Duplicates</strong> to scan your photos' perceptual hashes for near-duplicate copies (resized/re-compressed versions, burst shots).</p>
+</div>
+{% else %}
+<p class="hint mb-1">Each group below was detected as likely duplicates of each other. Review each group and click <strong>&times;</strong> on any copies you don't want &mdash; deleted files go to the Recycle Bin, not a permanent delete.</p>
+
+{% for g in groups %}
+<div class="panel" data-group-id="{{ g.id }}">
+  <h2>Group {{ g.id }} <span class="muted" style="font-weight:400;font-size:0.9rem;">&mdash; {{ g.photo_count }} photos</span></h2>
+  <div class="face-grid">
+    {% for p in g.photos %}
+    <div class="dup-item" data-photo-id="{{ p.photo_id }}">
+      <div class="face-tile">
+        <img src="/duplicate-thumb/{{ p.photo_id }}" alt="{{ p.filename }}" onclick="openLightbox('/duplicate-photo/{{ p.photo_id }}')" title="{{ p.path }}">
+        <button class="btn-dismiss" onclick="doDeletePhoto({{ p.photo_id }}, this)" title="Send this file to the Recycle Bin">&times;</button>
+        <span class="face-badge">{{ (p.file_size / 1024)|round(1) }} KB</span>
+      </div>
+      <div class="dup-caption" title="{{ p.path }}">{{ p.filename }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+KeyShortcuts.init();
+
+async function doDetect() {
+  const btn = document.getElementById('detect-btn');
+  const spinner = document.getElementById('detect-spinner');
+  const status = document.getElementById('detect-status');
+  btn.disabled = true;
+  spinner.style.display = 'inline-block';
+  status.textContent = 'Scanning for duplicates...';
+
+  const res = await api('/api/detect-duplicates', {});
+  if (!res.ok && !res.task_id) {
+    status.textContent = 'Error: ' + (res.error || 'failed');
+    btn.disabled = false;
+    spinner.style.display = 'none';
+    return;
+  }
+
+  const taskId = res.task_id;
+  const poll = setInterval(async () => {
+    let r;
+    try { r = await (await fetch('/api/task/' + taskId)).json(); } catch(e) { return; }
+    if (r.status === 'done') {
+      clearInterval(poll);
+      spinner.style.display = 'none';
+      const groups = (r.result && r.result.groups) || 0;
+      if (groups === 0) {
+        status.textContent = 'No duplicate groups found.';
+        btn.disabled = false;
+      } else {
+        status.textContent = `Found ${groups} duplicate group(s) — reloading...`;
+        setTimeout(() => location.reload(), 1000);
+      }
+    } else if (r.status === 'error') {
+      clearInterval(poll);
+      spinner.style.display = 'none';
+      status.textContent = 'Error: ' + (r.message || 'failed');
+      btn.disabled = false;
+    }
+  }, 1000);
+}
+
+async function doDeletePhoto(photoId, btn) {
+  const res = await api('/api/delete-photo', {photo_id: photoId});
+  if (res.ok) {
+    toast('Photo sent to Recycle Bin');
+    const item = btn.closest('.dup-item');
+    const group = item ? item.closest('.panel') : null;
+    if (item) item.remove();
+    if (group && group.querySelectorAll('.dup-item').length === 0) {
+      group.remove();
+    }
+  } else {
+    toast('Error: ' + (res.error || 'failed'));
+  }
+}
+</script>
+{% endblock %}

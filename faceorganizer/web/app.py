@@ -10,14 +10,22 @@ from pathlib import Path
 from flask import Flask, Response, abort, g, jsonify, render_template, request, send_file
 
 from faceorganizer import actions
-from faceorganizer.config import DEFAULT_CLUSTER_THRESHOLD, get_data_dir, get_db_path
+from faceorganizer.config import (
+    DEFAULT_CLUSTER_THRESHOLD,
+    DEFAULT_DUPLICATE_HAMMING_THRESHOLD,
+    get_data_dir,
+    get_db_path,
+)
 from faceorganizer.database.core import (
     get_cluster_by_id,
     get_clusters,
     get_dismissed_faces,
+    get_duplicate_groups,
     get_face_by_id,
     get_faces_for_cluster,
+    get_photo_by_id,
     get_photos_for_cluster,
+    get_photos_in_duplicate_group,
     get_scan_stats,
     update_face_cluster,
     update_face_clusters_batch,
@@ -26,7 +34,7 @@ from faceorganizer.database.schema import configure_connection, init_db
 from faceorganizer.logging_config import get_logger
 from faceorganizer.web.settings import Settings
 from faceorganizer.web.tasks import create_task, get_task, run_in_background
-from faceorganizer.web.thumbnails import get_or_create_thumbnail
+from faceorganizer.web.thumbnails import get_or_create_photo_thumbnail, get_or_create_thumbnail
 
 log = get_logger("web.app")
 
@@ -231,6 +239,19 @@ def create_app(scan_root: Path) -> Flask:
         faces = get_dismissed_faces(conn)
         return render_template("dismissed.html", faces=faces, active_page="dismissed")
 
+    @app.route("/duplicates")
+    def duplicates_page():
+        conn = get_conn()
+        groups = []
+        for grp in get_duplicate_groups(conn):
+            photos = get_photos_in_duplicate_group(conn, grp["id"])
+            for p in photos:
+                p["filename"] = Path(p["path"]).name
+            groups.append(
+                {"id": grp["id"], "photo_count": grp["photo_count"], "photos": photos}
+            )
+        return render_template("duplicates.html", groups=groups, active_page="duplicates")
+
     # ── Asset serving ──────────────────────────────────────────────────
 
     @app.route("/thumb/<int:face_id>")
@@ -254,6 +275,28 @@ def create_app(scan_root: Path) -> Flask:
         if face is None:
             abort(404)
         photo_path = Path(face["photo_path"])
+        if not photo_path.exists():
+            abort(404)
+        return send_file(photo_path)
+
+    @app.route("/duplicate-thumb/<int:photo_id>")
+    def duplicate_thumbnail(photo_id):
+        conn = get_conn()
+        photo_row = get_photo_by_id(conn, photo_id)
+        if photo_row is None:
+            abort(404)
+        path = get_or_create_photo_thumbnail(scan_root, photo_id, photo_row["path"])
+        if path is None or not path.exists():
+            abort(404)
+        return send_file(path, mimetype="image/jpeg")
+
+    @app.route("/duplicate-photo/<int:photo_id>")
+    def duplicate_photo_file(photo_id):
+        conn = get_conn()
+        photo_row = get_photo_by_id(conn, photo_id)
+        if photo_row is None:
+            abort(404)
+        photo_path = Path(photo_row["path"])
         if not photo_path.exists():
             abort(404)
         return send_file(photo_path)
@@ -453,6 +496,22 @@ def create_app(scan_root: Path) -> Flask:
             return jsonify({"error": str(e)}), e.status
         return jsonify({"ok": True, "face_id": fid})
 
+    @app.route("/api/delete-photo", methods=["POST"])
+    def api_delete_photo():
+        """Send a photo's file to the Recycle Bin and remove it from the database."""
+        data = request.get_json(force=True)
+        try:
+            pid = _require_int(data.get("photo_id"), "photo_id")
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        conn = get_conn()
+        try:
+            actions.delete_photo(conn, pid)
+        except actions.ActionError as e:
+            log.warning("api_delete_photo failed for photo %d: %s", pid, e)
+            return jsonify({"error": str(e)}), e.status
+        return jsonify({"ok": True, "photo_id": pid})
+
     # ── Filesystem browser ─────────────────────────────────────────────
 
     @app.route("/api/browse")
@@ -594,6 +653,30 @@ def create_app(scan_root: Path) -> Flask:
                 conn.close()
 
         run_in_background(task, do_export)
+        return jsonify({"ok": True, "task_id": task.id})
+
+    @app.route("/api/detect-duplicates", methods=["POST"])
+    def api_detect_duplicates():
+        """Backfill missing perceptual hashes, then group duplicates (background task)."""
+        data = request.get_json(force=True) if request.is_json else {}
+        threshold = int(data.get("threshold", DEFAULT_DUPLICATE_HAMMING_THRESHOLD))
+
+        task = create_task("detect-duplicates")
+
+        def do_detect():
+            from faceorganizer import duplicates
+            from faceorganizer.scanner.scan_runner import backfill_phashes
+
+            conn = sqlite3.connect(str(db_path))
+            configure_connection(conn)
+            try:
+                backfill_phashes(conn, stop_event=task.stop_event)
+                num_groups = duplicates.run_duplicate_detection(conn, hamming_threshold=threshold)
+                task.result = {"groups": num_groups}
+            finally:
+                conn.close()
+
+        run_in_background(task, do_detect)
         return jsonify({"ok": True, "task_id": task.id})
 
     @app.route("/api/stats")

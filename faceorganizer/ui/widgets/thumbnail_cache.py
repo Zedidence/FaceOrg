@@ -28,6 +28,10 @@ class ThumbnailCache:
         self._scan_root = scan_root
         self._thumb_size = thumb_size
         self._mem: OrderedDict[int, QPixmap] = OrderedDict()
+        # Separate cache for whole-photo (not face-crop) thumbnails, keyed by
+        # photo_id — kept apart from _mem since photo_id and face_id are
+        # independent sequences that would otherwise collide on the same int.
+        self._mem_photo: OrderedDict[int, QPixmap] = OrderedDict()
         self._thumb_dir = get_thumbnail_dir(scan_root)
         self._thumb_dir.mkdir(parents=True, exist_ok=True)
 
@@ -60,11 +64,58 @@ class ThumbnailCache:
             self._put(face_id, px)
         return px
 
+    def get_photo(self, photo_id: int, photo_path: str) -> QPixmap | None:
+        """Return a QPixmap for the whole (uncropped) photo, used for duplicate
+        review — not a face crop, so kept in a separate cache namespace."""
+        if photo_id in self._mem_photo:
+            self._mem_photo.move_to_end(photo_id)
+            return self._mem_photo[photo_id]
+
+        disk_path = self._thumb_dir / f"photo_{photo_id}.jpg"
+        if disk_path.exists():
+            px = QPixmap(str(disk_path))
+            if not px.isNull():
+                self._put_photo(photo_id, px)
+                return px
+
+        src = Path(photo_path)
+        if not src.exists():
+            log.warning("Source photo missing for thumbnail: %s", src)
+            return None
+
+        try:
+            with Image.open(src) as img:
+                img = img.convert("RGB")
+                img.thumbnail(self._thumb_size, Image.LANCZOS)
+                disk_path.parent.mkdir(parents=True, exist_ok=True)
+                img.save(str(disk_path), "JPEG", quality=85)
+            px = QPixmap(str(disk_path))
+            if px.isNull():
+                return None
+        except Exception:
+            log.exception("Failed to generate thumbnail for photo %d", photo_id)
+            if disk_path.exists():
+                try:
+                    disk_path.unlink()
+                except OSError:
+                    pass
+            return None
+
+        self._put_photo(photo_id, px)
+        return px
+
     def invalidate(self) -> None:
         """Clear the in-memory cache (e.g., after a new scan)."""
         self._mem.clear()
+        self._mem_photo.clear()
 
     # ── private ──────────────────────────────────────────────────────────────
+
+    def _put_photo(self, photo_id: int, px: QPixmap) -> None:
+        self._mem_photo[photo_id] = px
+        self._mem_photo.move_to_end(photo_id)
+        if len(self._mem_photo) > _MEMORY_CACHE_LIMIT:
+            self._mem_photo.popitem(last=False)
 
     def _put(self, face_id: int, px: QPixmap) -> None:
         self._mem[face_id] = px

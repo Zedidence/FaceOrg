@@ -23,6 +23,7 @@ from faceorganizer.database.schema import init_db
 from faceorganizer.hardware import RuntimeProfile
 from faceorganizer.ui.content_stack import (
     PANEL_DISMISSED,
+    PANEL_DUPLICATES,
     PANEL_PEOPLE,
     PANEL_PERSON_DETAIL,
     PANEL_REVIEW,
@@ -32,6 +33,7 @@ from faceorganizer.ui.content_stack import (
     ContentStack,
 )
 from faceorganizer.ui.panels.dismissed_panel import DismissedPanel
+from faceorganizer.ui.panels.duplicates_panel import DuplicatesPanel
 from faceorganizer.ui.panels.people_panel import PeoplePanel
 from faceorganizer.ui.panels.person_detail_panel import PersonDetailPanel
 from faceorganizer.ui.panels.review_panel import ReviewPanel
@@ -43,6 +45,7 @@ from faceorganizer.ui.theme import apply_theme
 from faceorganizer.ui.widgets.progress_bar import OperationProgressBar
 from faceorganizer.ui.widgets.thumbnail_cache import ThumbnailCache
 from faceorganizer.workers.cluster_worker import ClusterWorker
+from faceorganizer.workers.duplicate_worker import DuplicateWorker
 from faceorganizer.workers.export_worker import ExportWorker
 from faceorganizer.workers.scan_worker import ScanWorker
 
@@ -95,6 +98,7 @@ class MainWindow(QMainWindow):
         ops_menu = mb.addMenu("&Operations")
         ops_menu.addAction("Scan for Faces", self._start_scan, "Ctrl+Shift+S")
         ops_menu.addAction("Cluster Faces", self._start_cluster, "Ctrl+Shift+C")
+        ops_menu.addAction("Find Duplicates", self._start_find_duplicates, "Ctrl+Shift+D")
         ops_menu.addAction("Export…", self._start_export, "Ctrl+Shift+E")
 
         # View menu
@@ -105,6 +109,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction("Review", lambda: self._show_panel(PANEL_REVIEW))
         view_menu.addAction("Timeline", lambda: self._show_panel(PANEL_TIMELINE))
         view_menu.addAction("Dismissed", lambda: self._show_panel(PANEL_DISMISSED))
+        view_menu.addAction("Duplicates", lambda: self._show_panel(PANEL_DUPLICATES))
 
         # Help menu
         help_menu = mb.addMenu("&Help")
@@ -120,6 +125,7 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         self._action_scan = tb.addAction("Scan", self._start_scan)
         self._action_cluster = tb.addAction("Cluster", self._start_cluster)
+        self._action_find_duplicates = tb.addAction("Duplicates", self._start_find_duplicates)
         self._action_export = tb.addAction("Export", self._start_export)
         tb.addSeparator()
         self._action_settings = tb.addAction("Settings", lambda: self._show_panel(PANEL_SETTINGS))
@@ -163,6 +169,10 @@ class MainWindow(QMainWindow):
         self._dismissed = DismissedPanel()
         self._dismissed.faces_changed.connect(self._on_clusters_changed)
         self._stack.add_panel(PANEL_DISMISSED, self._dismissed)
+
+        self._duplicates = DuplicatesPanel()
+        self._duplicates.photos_changed.connect(self._on_clusters_changed)
+        self._stack.add_panel(PANEL_DUPLICATES, self._duplicates)
 
         self._settings_panel = SettingsPanel(self._settings, self._profile)
         self._settings_panel.settings_saved.connect(self._on_settings_saved)
@@ -245,6 +255,8 @@ class MainWindow(QMainWindow):
             self._timeline.load(self._db_conn, self._cache)
         elif name == PANEL_DISMISSED:
             self._dismissed.load(self._db_conn, self._cache)
+        elif name == PANEL_DUPLICATES:
+            self._duplicates.load(self._db_conn, self._cache)
 
         self._stack.show_panel(name)
 
@@ -254,6 +266,7 @@ class MainWindow(QMainWindow):
             "review": PANEL_REVIEW,
             "timeline": PANEL_TIMELINE,
             "dismissed": PANEL_DISMISSED,
+            "duplicates": PANEL_DUPLICATES,
             "settings": PANEL_SETTINGS,
         }
         panel = panel_map.get(view_id)
@@ -293,6 +306,14 @@ class MainWindow(QMainWindow):
                 eps=self._settings.cluster_threshold,
             ),
             "Clustering…",
+        )
+
+    def _start_find_duplicates(self) -> None:
+        if self._scan_root is None or self._active_thread is not None:
+            return
+        self._launch_worker(
+            DuplicateWorker(self._scan_root),
+            "Finding duplicates…",
         )
 
     def _start_export(self) -> None:
@@ -359,6 +380,8 @@ class MainWindow(QMainWindow):
             msg = f"Scan complete — {result['faces_found']} faces in {result['processed']} photos"
         elif "num_clusters" in result:
             msg = f"Clustering complete — {result['num_clusters']} clusters"
+        elif "num_groups" in result:
+            msg = f"Duplicate scan complete — {result['num_groups']} group(s) found"
         elif "total_exported" in result:
             msg = f"Export complete — {result['total_exported']} photos exported"
         else:
@@ -377,6 +400,9 @@ class MainWindow(QMainWindow):
         """Reload the people panel and sidebar (called deferred from _on_worker_finished)."""
         self._people.load(self._db_conn, self._cache)
         self._refresh_sidebar()
+        # Harmless no-op if the duplicates panel hasn't been visited yet
+        # (refresh() guards on that); keeps it current if it has been.
+        self._duplicates.refresh()
 
     @Slot(str)
     def _on_worker_error(self, message: str) -> None:
@@ -408,7 +434,10 @@ class MainWindow(QMainWindow):
             self._people.refresh()
 
     def _set_operations_enabled(self, enabled: bool) -> None:
-        for action in (self._action_scan, self._action_cluster, self._action_export):
+        for action in (
+            self._action_scan, self._action_cluster,
+            self._action_find_duplicates, self._action_export,
+        ):
             action.setEnabled(enabled)
 
     def _toggle_theme(self) -> None:

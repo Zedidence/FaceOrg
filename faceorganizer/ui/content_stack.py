@@ -10,6 +10,7 @@ PANEL_PERSON_DETAIL = "person_detail"
 PANEL_REVIEW = "review"
 PANEL_TIMELINE = "timeline"
 PANEL_DISMISSED = "dismissed"
+PANEL_DUPLICATES = "duplicates"
 PANEL_SETTINGS = "settings"
 
 

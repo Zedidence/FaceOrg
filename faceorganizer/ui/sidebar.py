@@ -77,6 +77,7 @@ class SidebarPanel(QWidget):
             ("Review", "review"),
             ("Timeline", "timeline"),
             ("Dismissed", "dismissed"),
+            ("Duplicates", "duplicates"),
             ("Settings", "settings"),
         ]:
             item = QTreeWidgetItem(views_root, [label])

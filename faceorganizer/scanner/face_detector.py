@@ -19,6 +19,7 @@ import imagehash
 import numpy as np
 import onnxruntime as ort
 import PIL.Image
+from cv2.utils import logging as cv2_logging
 
 from faceorganizer.config import MIN_DETECTION_CONFIDENCE, MIN_FACE_SIZE
 from faceorganizer.logging_config import get_logger
@@ -73,6 +74,9 @@ _arcface_init_lock = threading.Lock()
 # Single lock shared by all model downloads — prevents multiple threads from
 # trying to write the same file simultaneously on the first run.
 _download_lock = threading.Lock()
+# OpenCV's log level is process-global; serializes the temporary mute in
+# _get_detector so threads don't clobber each other's saved level.
+_cv_log_lock = threading.Lock()
 
 # ArcFace standard alignment template (destination landmarks for 112×112 crop).
 # Five points: left-eye, right-eye, nose-tip, left-mouth, right-mouth.
@@ -139,12 +143,22 @@ def _get_detector(width: int, height: int) -> cv2.FaceDetectorYN:
         # Evict the oldest entry (insertion order)
         cache.pop(next(iter(cache)))
 
-    detector = cv2.FaceDetectorYN.create(
-        str(model_path), "", (width, height),
-        score_threshold=MIN_DETECTION_CONFIDENCE,
-        nms_threshold=0.2,
-        top_k=100,
-    )
+    # OpenCV 5's new DNN graph engine logs a harmless "setPreferableTarget ...
+    # not supported" warning on every create(), once per worker thread, which
+    # garbles the scan progress bar.  Mute warnings for just this call; the
+    # lock keeps concurrent threads from restoring the wrong level.
+    with _cv_log_lock:
+        prev_level = cv2_logging.getLogLevel()
+        cv2_logging.setLogLevel(cv2_logging.LOG_LEVEL_ERROR)
+        try:
+            detector = cv2.FaceDetectorYN.create(
+                str(model_path), "", (width, height),
+                score_threshold=MIN_DETECTION_CONFIDENCE,
+                nms_threshold=0.2,
+                top_k=100,
+            )
+        finally:
+            cv2_logging.setLogLevel(prev_level)
     cache[key] = detector
     return detector
 

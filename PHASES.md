@@ -5,7 +5,7 @@
 - [x] Implement config.py with image extensions, thresholds, paths
 - [x] Implement models.py with PhotoInfo, FaceInfo, PersonCluster dataclasses
 - [x] Implement scanner/file_discovery.py — walk directory, filter by image extension
-- [x] Implement scanner/face_detector.py — ONNX-based SCRFD detection + ArcFace embeddings
+- [x] Implement scanner/face_detector.py — OpenCV YuNet detection + ONNX ArcFace (w600k_r50) embeddings
 - [x] Implement database/schema.py and database/core.py — SQLite tables, CRUD
 - [x] Implement CLI: `faceorganizer scan <folder>` and `faceorganizer stats <folder>`
 
@@ -30,7 +30,7 @@
 - [x] API endpoints: POST merge, POST split, POST rename
 
 ## Phase 5: Polish & Performance ✅
-- [x] Parallel face detection using concurrent.futures.ProcessPoolExecutor
+- [x] Parallel face detection using concurrent.futures.ThreadPoolExecutor (threads share one ArcFace session)
 - [x] Incremental scanning — skip already-scanned photos (path + mtime check)
 - [x] Face thumbnail cache on disk for fast web UI loading
 - [x] EXIF date extraction for chronological sorting within a person

@@ -114,7 +114,7 @@ Drop new files into the same folder, click **Scan** again, then **Cluster** (the
 |---------|-----|
 | Scan is slow / fan spins up | Open **Settings** (toolbar) and lower **Worker threads** |
 | Too many false face detections | In Settings, raise **Detection confidence** (try 92–95%) or **Min face size** (try 50–60 px) |
-| Wrong faces merged into one person | Lower **Cluster threshold** in Settings (default 0.30 — lower = stricter separation) |
+| Wrong faces merged into one person | Lower **Cluster threshold** in Settings (default 0.55 — lower = stricter separation) |
 | A person is split across multiple cards | Merge the cards: right-click → *Merge into…* |
 | App seems slow after a large scan | The first people panel load generates thumbnails — it speeds up on subsequent opens |
 

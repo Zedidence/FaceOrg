@@ -10,6 +10,16 @@ work).
 
 ## [Unreleased]
 
+### Fixed
+- Face alignment fed ArcFace the eye and mouth landmarks in swapped order,
+  rotating every aligned crop ~60° and making embeddings close to useless
+  (on a sample portrait, a resized copy of the same face scored 0.64
+  similarity vs 0.37 for a different person; now 0.97 vs −0.01).
+  **Existing libraries must be fully rescanned**: stored embeddings are
+  wrong, and incremental scans skip unchanged files, so delete
+  `<folder>/.faceorganizer/faces.db` and scan again (person names and
+  dismissals are lost; re-cluster and rename afterwards).
+
 ### Added
 - Perceptual near-duplicate photo detection, across all three interfaces:
   - Every scan now computes a perceptual hash per photo (schema v5:

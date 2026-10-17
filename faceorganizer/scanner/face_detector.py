@@ -79,7 +79,9 @@ _download_lock = threading.Lock()
 _cv_log_lock = threading.Lock()
 
 # ArcFace standard alignment template (destination landmarks for 112×112 crop).
-# Five points: left-eye, right-eye, nose-tip, left-mouth, right-mouth.
+# Five points, with "left"/"right" meaning the side of the *image* (so point 0
+# is the subject's right eye): left-eye, right-eye, nose-tip, left-mouth,
+# right-mouth.
 _ARCFACE_DST = np.array(
     [
         [38.2946, 51.6963],
@@ -210,6 +212,17 @@ def _downscale_if_needed(img: np.ndarray) -> tuple[np.ndarray, float]:
     log.debug("Downscaling %dx%d -> %dx%d for detection (scale=%.3f)", w, h, new_w, new_h, scale)
     resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
     return resized, scale
+
+
+def _yunet_landmarks(face_row: np.ndarray) -> np.ndarray:
+    """Return the five YuNet landmarks as a (5, 2) array in ArcFace template order.
+
+    YuNet's indices 4-13 are already in template order: its "right eye" is the
+    subject's right eye, i.e. the one on the image's left, which is template
+    point 0 — and likewise for the mouth corners.  Swapping them rotates the
+    aligned crop by ~60° and makes embeddings near-useless.
+    """
+    return np.asarray(face_row[4:14], dtype=np.float32).reshape(5, 2)
 
 
 def _align_face(img_bgr: np.ndarray, landmarks_5: np.ndarray) -> np.ndarray:
@@ -399,22 +412,8 @@ def detect_faces(image_path: Path) -> tuple[PhotoInfo, list[FaceInfo]]:
             log.debug("Skipping tiny detection %dx%d in %s", w, h, image_path.name)
             continue
 
-        # Extract five landmarks from YuNet output:
-        # indices 4,5 = right-eye; 6,7 = left-eye; 8,9 = nose;
-        # 10,11 = right-mouth; 12,13 = left-mouth
-        # ArcFace template order: left-eye, right-eye, nose, left-mouth, right-mouth
-        landmarks = np.array(
-            [
-                [face_orig[6], face_orig[7]],   # left eye
-                [face_orig[4], face_orig[5]],   # right eye
-                [face_orig[8], face_orig[9]],   # nose tip
-                [face_orig[12], face_orig[13]], # left mouth
-                [face_orig[10], face_orig[11]], # right mouth
-            ],
-            dtype=np.float32,
-        )
-
         # Align face to 112×112 ArcFace template and extract embedding
+        landmarks = _yunet_landmarks(face_orig)
         aligned = _align_face(img_bgr, landmarks)
         embedding = _extract_arcface_embedding(aligned)
 

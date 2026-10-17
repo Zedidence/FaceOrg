@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from faceorganizer.config import THUMBNAIL_SIZE, get_thumbnail_dir
 from faceorganizer.logging_config import get_logger
@@ -44,7 +44,7 @@ def get_or_create_thumbnail(
 
     try:
         with Image.open(src) as img:
-            img = img.convert("RGB")
+            img = ImageOps.exif_transpose(img).convert("RGB")
 
             # Add 20% padding around the face for context
             pad_w = int(bbox_w * 0.2)
@@ -92,7 +92,7 @@ def get_or_create_photo_thumbnail(
 
     try:
         with Image.open(src) as img:
-            img = img.convert("RGB")
+            img = ImageOps.exif_transpose(img).convert("RGB")
             img.thumbnail(THUMBNAIL_SIZE, Image.LANCZOS)
             img.save(dest, "JPEG", quality=85)
         return dest

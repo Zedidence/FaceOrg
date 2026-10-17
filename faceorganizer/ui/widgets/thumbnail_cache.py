@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 from PySide6.QtGui import QPixmap
 
 from faceorganizer.config import get_thumbnail_dir
@@ -85,7 +85,7 @@ class ThumbnailCache:
 
         try:
             with Image.open(src) as img:
-                img = img.convert("RGB")
+                img = ImageOps.exif_transpose(img).convert("RGB")
                 img.thumbnail(self._thumb_size, Image.LANCZOS)
                 disk_path.parent.mkdir(parents=True, exist_ok=True)
                 img.save(str(disk_path), "JPEG", quality=85)
@@ -140,7 +140,7 @@ class ThumbnailCache:
 
         try:
             with Image.open(src) as img:
-                img = img.convert("RGB")
+                img = ImageOps.exif_transpose(img).convert("RGB")
                 pad_w = int(bbox_w * _PADDING_FACTOR)
                 pad_h = int(bbox_h * _PADDING_FACTOR)
                 left = max(0, bbox_x - pad_w)

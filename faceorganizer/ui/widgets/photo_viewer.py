@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QImageReader, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 
@@ -28,7 +28,10 @@ class PhotoViewer(QWidget):
 
     def load_photo(self, photo_path: str, faces: list[dict], selected_face_id: int | None = None) -> None:
         """Load a photo and its faces. faces is a list of dicts with bbox_* keys."""
-        px = QPixmap(photo_path)
+        # Apply EXIF orientation: face bboxes are stored in upright coordinates
+        reader = QImageReader(photo_path)
+        reader.setAutoTransform(True)
+        px = QPixmap.fromImage(reader.read())
         if px.isNull():
             self._pixmap = None
             self._faces = []

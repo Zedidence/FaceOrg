@@ -19,6 +19,12 @@ work).
   wrong, and incremental scans skip unchanged files, so delete
   `<folder>/.faceorganizer/faces.db` and scan again (person names and
   dismissals are lost; re-cluster and rename afterwards).
+- EXIF orientation was ignored: phone photos stored sideways (Orientation
+  tag) were detected sideways, so most of their faces were missed, and
+  thumbnails came out rotated. Detection, stored size/bboxes, perceptual
+  hashes, face/photo thumbnails (desktop and web) and the desktop photo
+  viewer now all work in upright orientation. Libraries with rotated photos
+  need a full rescan to pick this up.
 
 ### Added
 - Perceptual near-duplicate photo detection, across all three interfaces:

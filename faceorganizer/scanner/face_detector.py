@@ -19,6 +19,7 @@ import imagehash
 import numpy as np
 import onnxruntime as ort
 import PIL.Image
+import PIL.ImageOps
 from cv2.utils import logging as cv2_logging
 
 from faceorganizer.config import MIN_DETECTION_CONFIDENCE, MIN_FACE_SIZE
@@ -312,6 +313,18 @@ def warmup_models(on_status: Callable[[str], None] | None = None) -> None:
     _get_arcface_session()
 
 
+def _open_upright(pil_img: PIL.Image.Image) -> PIL.Image.Image:
+    """Return *pil_img* rotated/flipped per its EXIF Orientation tag.
+
+    Returns the same object when no transform is needed; otherwise a new
+    image, closing the original so its file handle isn't left open.
+    """
+    upright = PIL.ImageOps.exif_transpose(pil_img)
+    if upright is not pil_img:
+        pil_img.close()
+    return upright
+
+
 def compute_phash(image_path: Path) -> str | None:
     """Compute a perceptual hash for an image file at rest.
 
@@ -322,7 +335,7 @@ def compute_phash(image_path: Path) -> str | None:
     """
     try:
         with PIL.Image.open(image_path) as img:
-            return str(imagehash.phash(img))
+            return str(imagehash.phash(_open_upright(img)))
     except Exception:
         log.warning("Failed to compute perceptual hash for %s", image_path.name)
         return None
@@ -335,7 +348,6 @@ def detect_faces(image_path: Path) -> tuple[PhotoInfo, list[FaceInfo]]:
     """
     # Load image with PIL for metadata (pillow-heif adds HEIC support)
     pil_img = PIL.Image.open(image_path)
-    width, height = pil_img.size
     img_format = pil_img.format or image_path.suffix.lstrip(".").upper()
 
     # Extract EXIF date if available
@@ -355,6 +367,14 @@ def detect_faces(image_path: Path) -> tuple[PhotoInfo, list[FaceInfo]]:
                         continue
     except Exception:
         pass
+
+    # Work in display orientation: phone photos are often stored sideways with
+    # an EXIF Orientation tag, and YuNet finds few faces lying on their side.
+    # Stored size and bboxes are therefore in upright coordinates, so every
+    # consumer (thumbnails, photo viewer) must also open images via
+    # exif_transpose().
+    pil_img = _open_upright(pil_img)
+    width, height = pil_img.size
 
     photo = PhotoInfo(
         path=image_path.resolve(),

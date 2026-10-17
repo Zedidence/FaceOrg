@@ -53,3 +53,47 @@ def test_same_face_embeddings_match(tmp_path):
     assert faces_a and faces_b
     sim = float(np.dot(faces_a[0].embedding, faces_b[0].embedding))
     assert sim > 0.8
+
+
+def _save_sideways(upright: PIL.Image.Image, path: Path) -> None:
+    """Save *upright* the way a phone does: pixels rotated, plus Orientation=6."""
+    exif = PIL.Image.Exif()
+    exif[0x0112] = 6  # "rotate 90° CW to display"
+    upright.transpose(PIL.Image.Transpose.ROTATE_90).save(path, exif=exif, quality=95)
+
+
+def test_face_thumbnail_crops_upright_coordinates(tmp_path):
+    from faceorganizer.web.thumbnails import get_or_create_thumbnail
+
+    # Upright 200x300 image, grey, with a red square where the "face" is
+    upright = PIL.Image.new("RGB", (200, 300), (128, 128, 128))
+    upright.paste((255, 0, 0), (20, 40, 80, 100))
+    src = tmp_path / "sideways.jpg"
+    _save_sideways(upright, src)
+
+    thumb = get_or_create_thumbnail(tmp_path, 1, str(src), 20, 40, 60, 60)
+    with PIL.Image.open(thumb) as im:
+        r, g, b = im.convert("RGB").getpixel((im.width // 2, im.height // 2))
+    assert r > 200 and g < 60 and b < 60
+
+
+@pytest.mark.skipif(
+    not _SAMPLE_FACE.exists()
+    or not (fd._MODEL_DIR / "face_detection_yunet_2023mar.onnx").exists()
+    or not (fd._MODEL_DIR / "w600k_r50.onnx").exists(),
+    reason="needs the sample face image and downloaded models",
+)
+def test_detects_faces_in_exif_rotated_photo(tmp_path):
+    sideways = tmp_path / "sideways.jpg"
+    with PIL.Image.open(_SAMPLE_FACE) as im:
+        upright = im.convert("RGB")
+        _save_sideways(upright, sideways)
+
+    photo, faces = fd.detect_faces(sideways)
+    _, ref_faces = fd.detect_faces(_SAMPLE_FACE)
+    assert (photo.width, photo.height) == upright.size
+    assert len(faces) == 1
+    # Same face, same place, same identity as the upright original
+    assert abs(faces[0].bbox_x - ref_faces[0].bbox_x) <= 4
+    assert abs(faces[0].bbox_y - ref_faces[0].bbox_y) <= 4
+    assert float(np.dot(faces[0].embedding, ref_faces[0].embedding)) > 0.9
